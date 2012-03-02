@@ -739,6 +739,7 @@ class ProjectConfig:
         self.depends = set()
         self.rdepends = set()
         self.tree = etree.ElementTree()
+        self.build = LocalBuild()
 
     def read(self, cfg_path):
         """ Read configuration from an XML file.
@@ -774,7 +775,12 @@ class ProjectConfig:
             if runtime:
                 for dep_name in dep_names:
                     self.rdepends.add(dep_name)
-
+                    
+        # Parse build settings:
+        build_tree = self.tree.find("build")
+        if build_tree is not None:
+            self.build.parse(build_tree)
+            
     def write(self, location):
         """ Write configuration back to a config file
 

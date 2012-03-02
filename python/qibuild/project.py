@@ -63,6 +63,10 @@ class Project:
         self.config.read(project_xml)
         self.depends  = self.config.depends
         self.rdepends = self.config.rdepends
+        
+        build_dir = self.config.build.build_dir                
+        if build_dir:
+            self.build_directory = build_dir
 
     def set_custom_build_directory(self, build_dir):
         """ could be used to override the default build_directory
@@ -153,10 +157,11 @@ def update_project(project, toc):
             singlebdir = os.path.join(toc.work_tree, singlebdir)
         bname = os.path.join("build-%s" % (toc.build_folder_name), project.name)
         project.build_directory = os.path.normpath(os.path.join(singlebdir, bname))
+    elif project.build_directory :
+        project.build_directory = os.path.join(project.directory, project.build_directory)        
     else:
         bname = "build-%s" % (toc.build_folder_name)
         project.build_directory = os.path.join(project.directory, bname)
-
 
     # Handle single sdk dir
     sdk_dir = toc.config.local.build.sdk_dir
