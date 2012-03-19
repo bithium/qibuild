@@ -192,6 +192,24 @@ def install(src, dest, filter_fun=None, quiet=False):
         rm(dest)
         shutil.copy(src, dest)
 
+def safe_copy(src, dest):
+    """ Copy a source to a destination but
+    do not overwrite dest if it is more recent than src
+
+    Create any missing directories when necessary
+
+    If dest is a directory, src will be copied inside dest.
+
+    """
+    if os.path.isdir(dest):
+        dest = os.path.join(dest, os.path.basename(src))
+    if os.path.exists(dest):
+        dest_mtime = os.stat(dest).st_mtime
+        src_mtime  = os.stat(src).st_mtime
+        if src_mtime < dest_mtime:
+            return
+    shutil.copy(src, dest)
+
 def rm(name):
     """This one can take a file or a directory.
     Contrary to shutil.remove or os.remove, it:
@@ -508,3 +526,23 @@ def is_runtime(filename):
     # True by default: better have too much stuff than
     # not enough
     return True
+
+
+
+def is_executable_binary(file_path):
+    """ Returns true if the file:
+      * is executable
+      * is a binary (i.e not a script)
+    """
+    if not os.path.isfile(file_path):
+        return False
+    if not os.access(file_path, os.X_OK):
+        return False
+    with open(file_path, 'rb') as fp:
+        data = fp.read(1024)
+        if not data:
+            return False
+        if b'\0' in data:
+            return True
+        return False
+
