@@ -6,6 +6,7 @@
 
 import os
 import logging
+import urlparse
 import qisrc
 import qibuild
 
@@ -20,12 +21,33 @@ def configure_parser(parser):
     parser.add_argument("name", metavar="NAME", nargs="?",
         help="name of the project. If not given, this will be deduced from the "
              "URL")
+    parser.add_argument("--username",  metavar="USERNAME", 
+        help="username for authentication.")             
 
+def setupAuthentication( url, user ):
+
+    if user == None:
+        return url
+        
+    url = urlparse.urlsplit(url)
+    
+    temp = [ k for k in url ]
+    netloc = temp[1].split("@")
+    
+    if len(netloc) == 1:
+        netloc.append(netloc[0])    
+        netloc[0] = user
+        temp[1] = '@'.join(netloc)
+
+    return urlparse.urlunsplit(temp)
 
 def do(args):
     """Main entry point"""
     url = args.url
     name = args.name
+    user = args.username
+    print args
+    
     if not name:
         name = url.split("/")[-1].replace(".git", "")
 
@@ -36,6 +58,8 @@ def do(args):
 
     if os.path.exists(git_src_dir):
         raise qibuild.worktree.ProjectAlreadyExists(url, name, git_src_dir)
+
+    url = setupAuthentication( url, user )
 
     git = qisrc.git.Git(git_src_dir)
     git.clone(url)

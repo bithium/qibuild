@@ -36,13 +36,15 @@ def configure_parser(parser):
         metavar="URL",
         help="URL of the manifest. "
         "If not specified, use the last known url")
+    parser.add_argument("--username", metavar="USERNAME", 
+        help="username for authentication.")        
 
 
 def do(args):
     """Main entry point
 
     """
-    toc = qibuild.toc.toc_open(args.work_tree)
+    toc = qibuild.toc.toc_open(args.work_tree)    
     if args.url:
         manifest_url = args.url
     else:
@@ -64,9 +66,10 @@ def do(args):
     qiwt = qibuild.worktree_open(args.work_tree)
 
     projects = qisrc.parse_manifest(manifest_url)
+
     for (project_name, project_url) in projects.iteritems():
         if project_name not in qiwt.git_projects.keys():
-            qibuild.run_action("qisrc.actions.add", [project_url, project_name])
+            qibuild.run_action("qisrc.actions.add", [project_url, project_name], args )
         else:
             p_path = qiwt.git_projects[project_name]
             LOGGER.info("Found project %s, skipping", project_name)
