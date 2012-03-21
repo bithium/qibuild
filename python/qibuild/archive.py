@@ -61,7 +61,6 @@ def extract_tar(archive_path, dest_dir):
     archive = tarfile.open(archive_path)
     members = archive.getmembers()
     size = len(members)
-    res = None
     orig_topdir = members[0].name.split(posixpath.sep)[0]
     done = 0
     # Extract directories with a safe mode.
@@ -168,11 +167,12 @@ def extract(archive_path, directory, topdir=None):
     # so let's just catch everything
     try:
         if topdir:
-            with qibuild.sh.TempDir() as tmp:
-                extracted = extract_fun(archive_path, tmp)
-                dest = os.path.join(directory, topdir)
-                qibuild.sh.install(extracted, dest, quiet=True)
-                res = dest
+            extracted = extract_fun(archive_path, directory)
+            if os.path.basename(extracted) == topdir:
+                return
+            res = os.path.join(directory, topdir)
+            qibuild.sh.rm(res)
+            os.rename(extracted, res)
         else:
             res = extract_fun(archive_path, directory)
         return res
@@ -191,7 +191,7 @@ def zip_win(directory):
     directory    = qibuild.sh.to_native_path(directory)
     archive_name = qibuild.sh.to_native_path(archive_name)
     archive = zipfile.ZipFile(archive_name, "w", zipfile.ZIP_DEFLATED)
-    for (root, directories, filenames) in os.walk(directory):
+    for (root, _directories, filenames) in os.walk(directory):
         for filename in filenames:
             full_path = os.path.join(root, filename)
             rel_path = os.path.relpath(full_path, directory)
@@ -267,4 +267,4 @@ def archive_name(directory):
 
 
 if __name__ == "__main__":
-    extract(sys.argv[1], sys.argv[2], topdir="py")
+    extract(sys.argv[1], sys.argv[2], topdir=sys.argv[3])
