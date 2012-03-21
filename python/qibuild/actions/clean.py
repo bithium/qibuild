@@ -8,6 +8,8 @@ By default all build directories for all projects are removed.
 You can specify a list of build directory names to cleanup.
 """
 
+from __future__ import print_function
+
 import os
 import glob
 import logging
@@ -41,10 +43,20 @@ def do(args):
     
     logger.info("Cleaning directories :")
 
+    size = 0
+
+    for project in projects:
+        bdir = project.build_directory        
+        bdir_rel = os.path.relpath( bdir, qiwt.work_tree )
+        size = max( size, len(bdir_rel) )
+
+    size += 6
+
     for project in projects:        
+
         bdir = project.build_directory        
         bdir_rel = os.path.relpath(bdir, qiwt.work_tree )        
-        print "\t%s\t: %s" % (project.name, bdir_rel)
+        print("\t%s\t: %s" % (project.name, bdir_rel.ljust(size, '.')), end = '' )
         cleanup( bdir )        
-        print " ... done !"
+        logger.info(" done !")
         
