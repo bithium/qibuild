@@ -22,7 +22,7 @@ The url should point to a xml file looking like
 
 import os
 import logging
-
+import getpass
 import qisrc
 import qibuild
 
@@ -37,9 +37,25 @@ def configure_parser(parser):
         help="URL of the manifest. "
         "If not specified, use the last known url")
     parser.add_argument("--username", metavar="USERNAME", 
-        help="username for authentication.")        
+        help="username for authentication.")
+    parser.add_argument("-p", "--ask", dest="ask_password", action="store_true", 
+        help="Ask for password to use in all projects.")                
+    parser.add_argument("--password",  metavar="PASSWORD", 
+        help="Ask for password to use in all projects.")
+        
+        
+def setupPassword( args ):
 
+    if args.password:        
+        return None
+    
+    if not args.ask_password:
+        return None
 
+    # Ask user for password.
+    return getpass.getpass("Password: ")
+    
+        
 def do(args):
     """Main entry point
 
@@ -62,6 +78,8 @@ def do(args):
 """
             raise Exception(mess)
         manifest_url = manifest.url
+
+    args.password = setupPassword( args )
 
     qiwt = qibuild.worktree_open(args.work_tree)
 

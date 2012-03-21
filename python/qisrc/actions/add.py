@@ -7,6 +7,7 @@
 import os
 import logging
 import urlparse
+import getpass
 import qisrc
 import qibuild
 
@@ -22,9 +23,11 @@ def configure_parser(parser):
         help="name of the project. If not given, this will be deduced from the "
              "URL")
     parser.add_argument("--username",  metavar="USERNAME", 
-        help="username for authentication.")             
+        help="username for authentication.")
+    parser.add_argument("--password",  metavar="PASSWORD", 
+        help="Ask for password to use in all projects.")             
 
-def setupAuthentication( url, user ):
+def setupAuthentication( url, user, password = None ):
 
     if user == None:
         return url
@@ -36,8 +39,13 @@ def setupAuthentication( url, user ):
     
     if len(netloc) == 1:
         netloc.append(netloc[0])    
-        netloc[0] = user
-        temp[1] = '@'.join(netloc)
+
+    if password != None:
+        netloc[0] = "%s:%s" % (user, password)
+    else:
+        netloc[0] = user 
+
+    temp[1] = '@'.join(netloc)
 
     return urlparse.urlunsplit(temp)
 
@@ -46,7 +54,7 @@ def do(args):
     url = args.url
     name = args.name
     user = args.username
-    print args
+    password = args.password        
     
     if not name:
         name = url.split("/")[-1].replace(".git", "")
@@ -59,8 +67,8 @@ def do(args):
     if os.path.exists(git_src_dir):
         raise qibuild.worktree.ProjectAlreadyExists(url, name, git_src_dir)
 
-    url = setupAuthentication( url, user )
-
+    url = setupAuthentication( url, user, password )
+    
     git = qisrc.git.Git(git_src_dir)
     git.clone(url)
 
