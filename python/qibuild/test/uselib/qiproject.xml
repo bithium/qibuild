@@ -1,7 +1,7 @@
-<project name="@project_name@">
+<project name="uselib">
   <!-- Add your project dependencies here -->
 
   <!--
-  <depends names="foo" />
+  <depends name="foo" />
   -->
 </project>

@@ -28,3 +28,14 @@ check:
 	@echo ":: Running tests"
 	@$(PYTHON) run_tests.py
 
+
+coverage:
+	@echo ":: Running tests (with coverage)"
+	@rm -fr .coverage htmlcov
+	@$(PYTHON) run_tests.py --coverage --xunit
+	@$(PYTHON) -m coverage html
+
+
+# To be run on a build farm:
+continuous: check-error coverage
+
