@@ -34,7 +34,7 @@ include(CMakeParseArguments)
 #
 # \example:submodule
 function(qi_submodule_create name)
-  cmake_parse_arguments(ARG "" "" "SRC;DEPENDS;INCLUDE" ${ARGN})
+  cmake_parse_arguments(ARG "" "" "SRC;DEPENDS" ${ARGN})
 
   string(TOUPPER "submodule_${name}_src"           _OUT_src)
   string(TOUPPER "submodule_${name}_depends"       _OUT_depends)
@@ -42,11 +42,15 @@ function(qi_submodule_create name)
 
   qi_glob(_SRC           ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS})
   qi_abspath(_SRC ${_SRC})
+  
+  get_property(ARG_INCLUDE DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
+  
   # Note: this function may be called more that once, that why we
   # ADD values inside cache if they are already here.
   qi_set_advanced_cache(${_OUT_src}           ${${_OUT_src}}           ${_SRC})
   qi_set_advanced_cache(${_OUT_depends}       ${${_OUT_depends}}       ${ARG_DEPENDS})
   qi_set_advanced_cache(${_OUT_include}       ${${_OUT_include}}       ${ARG_INCLUDE})
+    
 endfunction()
 
 
@@ -66,7 +70,7 @@ endfunction()
 # \group:DEPENDS          The list of dependencies
 #
 function(qi_submodule_add _name)
-  cmake_parse_arguments(ARG "" "IF" "SRC;DEPENDS;INCLUDE" ${ARGN})
+  cmake_parse_arguments(ARG "" "IF" "SRC;DEPENDS" ${ARGN})
 
   # CMake handling of booleans is a little weird...
   set(_doit)
@@ -82,7 +86,6 @@ function(qi_submodule_add _name)
   if (_doit)
     qi_submodule_create("${_name}"
                         SRC           ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS}
-                        DEPENDS       ${ARG_DEPENDS}
-                        INCLUDE       ${ARG_INCLUDE})
+                        DEPENDS       ${ARG_DEPENDS} )
   endif()
 endfunction()
