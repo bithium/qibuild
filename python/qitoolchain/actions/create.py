@@ -28,8 +28,6 @@ def configure_parser(parser):
     parser.add_argument("--default",
         help="Use this toolchain by default in this worktree",
         action="store_true")
-    parser.add_argument("--cmake-generator", dest="cmake_generator",
-        help="CMake generator to use when using this toolchain")
     parser.add_argument("--dry-run", action="store_true",
         help="Print what would be done")
 
@@ -51,14 +49,6 @@ def do(args):
             mess += " ".join(bad_chars)
             raise Exception(mess)
 
-    known_generators = qibuild.cmake.get_known_cmake_generators()
-    cmake_generator = args.cmake_generator
-    if cmake_generator and cmake_generator not in known_generators:
-        mess  = "Invalid CMake generator: %s\n" % args.cmake_generator
-        mess += "Known generators are:"
-        mess += "\n * " + "\n * ".join(known_generators)
-        raise Exception(mess)
-
     toc = None
 
     if args.default:
@@ -79,17 +69,6 @@ def do(args):
     toolchain = qitoolchain.Toolchain(tc_name)
     if feed:
         toolchain.parse_feed(feed, dry_run=dry_run)
-
-    cmake_generator = args.cmake_generator
-    qibuild_cfg = qibuild.config.QiBuildConfig()
-    qibuild_cfg.read()
-    config = qibuild.config.Config()
-    config.name = tc_name
-    if cmake_generator:
-        config.cmake.generator = cmake_generator
-    qibuild_cfg.add_config(config)
-    qibuild_cfg.write()
-
 
     if args.default:
         toc.config.set_default_config(tc_name)

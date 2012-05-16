@@ -10,7 +10,7 @@ import glob
 import subprocess
 import qibuild
 
-SUPPORTED_IDES = ["QtCreator", "Visual Studio", "XCode"]
+SUPPORTED_IDES = ["QtCreator", "Visual Studio", "Xcode"]
 
 def configure_parser(parser):
     """Configure parser for this action """
@@ -29,7 +29,7 @@ def get_ide(toc):
     known_ides = qibuild_cfg.ides.values()
     ide_names  = qibuild_cfg.ides.keys()
     if not known_ides:
-        mess  =  "Could not find any IDE in configuration"
+        mess  =  "Could not find any IDE in configuration\n"
         mess +=  "Please use `qibuild config --wizard` or `qibuild config --edit`"
         raise Exception(mess)
 

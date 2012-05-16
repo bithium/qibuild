@@ -117,10 +117,11 @@ function(_qi_use_lib_internal name)
     set(_key "${_key}@${_arg}")
   endforeach()
 
-  if(${_key})
+  if(DEFINED ${_key})
     # qi_use_lib already put in cache
   else()
     _qi_use_lib_get_deps("${name}" _DEPS ${ARG_DEPENDS})
+    qi_set_advanced_cache("${_key}" ${_DEPS})
     # Append the new deps to the list of previous deps:
     set(_new_deps ${${_U_name}_DEPENDS} ${_DEPS})
     # reverse, remove duplicated and reverse again:
@@ -129,17 +130,21 @@ function(_qi_use_lib_internal name)
       list(REMOVE_DUPLICATES _new_deps)
       list(REVERSE _new_deps)
     endif()
+
     qi_set_advanced_cache("${_U_name}_DEPENDS" ${_new_deps})
-    qi_set_advanced_cache("${_key}" TRUE)
   endif()
 
-  foreach(_pkg ${${_U_name}_DEPENDS})
+
+  # Sort include dirs, add dependencies, link with the targets
+  # and add correct compile definitions
+  set(_inc_dirs)
+  foreach(_pkg ${${_key}})
     string(TOUPPER ${_pkg} _U_PKG)
 
     if (DEFINED ${_U_PKG}_INCLUDE_DIRS)
-      include_directories(${${_U_PKG}_INCLUDE_DIRS})
+      _qi_list_append_uniq(_inc_dirs ${${_U_PKG}_INCLUDE_DIRS})
     elseif(DEFINED ${_U_PKG}_INCLUDE_DIR)
-      include_directories(${${_U_PKG}_INCLUDE_DIR})
+      _qi_list_append_uniq(_inc_dirs ${${_U_PKG}_INCLUDE_DIR})
     endif()
 
     if (DEFINED ${_U_PKG}_LIBRARIES)
@@ -148,11 +153,11 @@ function(_qi_use_lib_internal name)
       target_link_libraries("${name}" ${${_U_PKG}_LIBRARY})
     endif()
 
-    # local lib are staged with _U_PKG_TARGET = localtargetname, this allow dependencies
-    # between local libs
-    if ( (DEFINED "${_U_PKG}_TARGET") AND (TARGET "${${_U_PKG}_TARGET}") )
-      add_dependencies(${name} "${${_U_PKG}_TARGET}")
+    if ((DEFINED "${_U_PKG}_TARGET") AND (TARGET "${${_U_PKG}_TARGET}"))
+      qi_append_uniq_global(${_U_name}_TARGET_DEPENDS ${${_U_PKG}_TARGET})
+      add_dependencies(${name} ${${_U_PKG}_TARGET})
     endif()
+
     if(${_U_PKG}_DEFINITIONS)
       # Append the correct compile definitions to the target
       set(_to_add)
@@ -167,5 +172,9 @@ function(_qi_use_lib_internal name)
             COMPILE_DEFINITIONS "${_to_add}")
       endif()
     endif()
+  endforeach()
+
+  foreach(_inc_dir ${_inc_dirs})
+    include_directories(${_inc_dir})
   endforeach()
 endfunction()

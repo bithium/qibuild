@@ -37,6 +37,17 @@ class TocException(Exception):
     def __str__(self):
         return self._message
 
+class WrongDefaultException(Exception):
+    """ Custom exception.
+    Caught only by qibuild init
+
+    """
+    def __init__(self, message):
+        self._message = message
+
+    def __str__(self):
+        return self._message
+
 class ConfigureFailed(Exception):
     def __init__(self, project, message=None):
         self.project = project
@@ -95,7 +106,7 @@ class Toc(WorkTree):
             path_hints=None,
             config=None,
             qibuild_cfg=None,
-            build_type="debug",
+            build_type="Debug",
             cmake_flags=None,
             cmake_generator=None,
             active_projects=None,
@@ -144,7 +155,7 @@ class Toc(WorkTree):
 
         self.build_type = build_type
         if not self.build_type:
-            self.build_type = "debug"
+            self.build_type = "Debug"
 
         self.cmake_generator   = cmake_generator
         self.build_folder_name = None
@@ -192,9 +203,18 @@ class Toc(WorkTree):
  * No custom cmake file for config {active_config} found.
    (looked in {local_cmake})
 """
-                    raise TocException(mess.format(active_config=self.active_config,
-                        local_cmake = local_cmake,
-                        tc_names = qitoolchain.get_tc_names()))
+                    mess =  mess.format(active_config=self.active_config,
+                                local_cmake = local_cmake,
+                                tc_names = qitoolchain.get_tc_names())
+                    if self.active_config == self.config.local.defaults.config:
+                        mess += """Note: this is your default config
+You may want to run:
+ * `qibuild init --force`  (to re-initialize your worktree and not use any toolchain)
+ * `qibuild init --force` --config=<config> (to use a different toolchain by default)
+ """
+                        raise WrongDefaultException(mess)
+                    else:
+                        raise Exception(mess)
 
         # Useful vars to cope with Visual Studio quirks
         self.using_visual_studio = "Visual Studio" in self.cmake_generator
@@ -266,12 +286,12 @@ class Toc(WorkTree):
         else:
             res.append("sys-%s-%s" % (platform.system().lower(), platform.machine().lower()))
 
-        if not self.using_visual_studio and self.build_type != "debug":
+        if not self.using_visual_studio and self.build_type != "Debug":
             # When using cmake + visual studio, sharing the same build dir with
             # several build config is mandatory.
             # Otherwise, it's not a good idea, so we always specify it
-            # when it's not "debug" (the default)
-            res.append(self.build_type)
+            # when it's not "Debug" (the default)
+            res.append(self.build_type.lower())
 
         self.build_folder_name = "-".join(res)
 

@@ -373,9 +373,8 @@ function(stage_lib _targetname _name)
       DEFINITIONS ${ARG_DEFINITIONS}
   )
   if(_need_other_name)
-    list(APPEND _new_args "STAGED_NAME" "${_name}")
+    qi_stage_lib(${_new_args} STAGED_NAME "${_name}" DEPRECATED)
   endif()
-
   qi_stage_lib(${_new_args})
 endfunction()
 
@@ -388,7 +387,6 @@ function(stage_bin _targetname _name)
 endfunction()
 
 function(stage_header _name)
-  set(_need_other_name FALSE)
   qi_deprecated("stage_header is deprecated:
     Use qi_stage_header_only_lib instead.
   ")

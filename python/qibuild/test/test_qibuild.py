@@ -8,8 +8,6 @@
 
 
 import os
-import re
-import sys
 import difflib
 
 import unittest
@@ -77,7 +75,7 @@ class QiBuildTestCase(unittest.TestCase):
         self._run_action("make", "hello")
         self._run_action("test", "hello")
 
-    def test_qi_uselib(self):
+    def test_qi_use_lib(self):
         self._run_action("configure", "uselib")
         # Read cache and check that DEPENDS value are here
         cmake_cache = self.get_cmake_cache("uselib")
@@ -89,9 +87,38 @@ class QiBuildTestCase(unittest.TestCase):
         self.assertRaises(Exception,
                 self._run_action, "configure", "uselib", "-DSHOULD_FAIL=ON")
 
+    def test_qi_stage_lib_simple(self):
+        self._run_action("configure", "stagelib")
+
+    def test_qi_stage_lib_but_really_bin(self):
+        error = None
+        try:
+            self._run_action("configure", "stagelib",
+                "-DSHOULD_FAIL_STAGE_LIB_BUT_REALLY_BIN=ON")
+        except Exception, e:
+            error = e
+        self.assertFalse(error is None)
+
+    def test_qi_stage_lib_but_no_such_target(self):
+        error = None
+        try:
+            self._run_action("configure", "stagelib",
+                "-DSHOULD_FAIL_STAGE_NO_SUCH_TARGET=ON")
+        except qibuild.toc.ConfigureFailed, e:
+            error = e
+        self.assertFalse(error is None)
+
 
     def test_package(self):
         self._run_action("package", "world")
+
+    def test_using_tool_for_install(self):
+        self._run_action("configure", "bar")
+        self._run_action("make", "bar")
+        with qibuild.sh.TempDir() as tmp:
+            self._run_action("install", "bar", tmp)
+            foo_out = os.path.join(tmp, "share", "foo", "foo.out")
+            self.assertTrue(os.path.exists(foo_out))
 
     def test_preserve_cache(self):
         # If cache changes when runnning cmake .. after
@@ -108,27 +135,23 @@ class QiBuildTestCase(unittest.TestCase):
         build_dir = self.get_build_dir("foo")
 
         # Read cache and check that DEPENDS value are here
-        cache = qibuild.cmake.read_cmake_cache(cmake_cache)
-
-        self.assertEquals(cache["EGGS_DEPENDS"], "spam")
-        self.assertEquals(cache["BAR_DEPENDS"] , "eggs;spam")
-
-        # run cmake .. once and store contents of cache:
-        qibuild.command.call(["cmake", ".."], cwd=build_dir)
-        before = ""
+        cache_before = qibuild.cmake.read_cmake_cache(cmake_cache)
         with open(cmake_cache, "r") as fp:
-            before = fp.readlines()
+            txt_before = fp.readlines()
+            txt_before = [l for l in txt_before if "ADVANCED" not in l]
 
-        # run cmake .. twice
+        self.assertEquals(cache_before["EGGS_DEPENDS"], "spam")
+        self.assertEquals(cache_before["BAR_DEPENDS"] , "eggs;spam")
+
+        # run cmake .. and check the cache did not change
         qibuild.command.call(["cmake", ".."], cwd=build_dir)
-        after = ""
         with open(cmake_cache, "r") as fp:
-            after = fp.readlines()
+            txt_after = fp.readlines()
+            txt_after = [l for l in txt_after if "ADVANCED" not in l]
 
         diff = ""
-        for line in difflib.unified_diff(before, after, fromfile='before', tofile='after'):
+        for line in difflib.unified_diff(txt_before, txt_after, fromfile='before', tofile='after'):
             diff += line
-
         self.assertEquals(diff, "", "Diff non empty\n%s" % diff)
 
 
