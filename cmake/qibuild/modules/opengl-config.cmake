@@ -2,7 +2,7 @@
 ## Use of this source code is governed by a BSD-style license that can be
 ## found in the COPYING file.
 
-clean(QPOASES)
-fpath(QPOASES QProblem.hpp PATH_SUFFIXES qpoases)
-flib(QPOASES qpOASES NAMES qpoases)
-export_lib(QPOASES)
+clean(OPENGL)
+fpath(OPENGL gl.h)
+flib(OPENGL opengl OpenGL)
+export_lib(OPENGL)

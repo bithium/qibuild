@@ -23,7 +23,7 @@ endif()
 if(QT_USE_QMAKE)
   # Use upstream cmake files:
   find_package(Qt4 COMPONENTS "")
-  include("${QT_USE_FILE}")
+  include(Qt4Macros)
   return()
 endif()
 

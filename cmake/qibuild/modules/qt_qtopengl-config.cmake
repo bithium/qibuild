@@ -5,12 +5,10 @@
 get_filename_component(_ROOT_DIR ${CMAKE_CURRENT_LIST_FILE} PATH)
 include("${_ROOT_DIR}/qtutils.cmake")
 
-set(_suffix "QTMULTIMEDIA")
-set(_libame "QtMultimedia")
+set(_suffix "QTOPENGL")
+set(_libame "QtOpenGL")
 
 qt_flib(${_suffix} ${_libame})
-if(UNIX AND NOT APPLE)
-  qi_set_global(QT_QTMULTIMEDIA_DEPENDS "ALSALIB")
-endif()
+qi_set_global(QT_QTOPENGL_DEPENDS "OPENGL")
 export_lib(QT_${_suffix})
 set(_ROOT_DIR)
