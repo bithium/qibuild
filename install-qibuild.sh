@@ -63,11 +63,11 @@ fi
 if [ "$localinst" = "yes" ] ; then
   echo WARNING: ${DESTDIR} is not writable
   echo =====================
-  echo installing into ~/.local/bin
-  echo You should add ~/.local/bin to your PATH
+  echo installing into ~/bin
+  echo You should add ~/bin to your PATH
   echo =====================
   echo
-  DESTDIR=~/.local/bin
+  DESTDIR=~/bin
   mkdir -p "${DESTDIR}"
 fi
 
