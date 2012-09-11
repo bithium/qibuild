@@ -9,28 +9,38 @@ Example:
 Use -- to seprate qisrc arguments from the arguments of the command.
 """
 
-import sys
-import logging
+import qisrc
 import qibuild
+from qibuild import ui
 
 def configure_parser(parser):
     """Configure parser for this action """
-    qibuild.parsers.work_tree_parser(parser)
+    qibuild.parsers.worktree_parser(parser)
     parser.add_argument("command", metavar="COMMAND", nargs="+")
     parser.add_argument("--ignore-errors", "--continue",
         action="store_true", help="continue on error")
 
 def do(args):
     """Main entry point"""
-    qiwt = qibuild.worktree_open(args.work_tree)
-    logger = logging.getLogger(__name__)
-    for pname, ppath in qiwt.git_projects.iteritems():
-        logger.info("Running `%s` for %s", " ".join(args.command), pname)
+    qiwt = qisrc.open_worktree(args.worktree)
+    errors = list()
+    ui.info(ui.green, "Running `%s` on every project" % " ".join(args.command))
+    c = 0
+    count = len(qiwt.git_projects)
+    for project in qiwt.git_projects:
+        c += 1
+        command = args.command[:]
+        ui.info(ui.green, "*", ui.reset, "(%d/%d)" % (c, count), ui.blue, project.src)
         try:
-            qibuild.command.call(args.command, cwd=ppath)
+            qibuild.command.call(command, cwd=project.path)
         except qibuild.command.CommandFailedException:
             if args.ignore_errors:
+                errors.append(project)
                 continue
             else:
                 raise
-
+    if not errors:
+        return
+    ui.error("Command failed on the following projects:")
+    for project in errors:
+        ui.info(ui.bold, " - ", project.src)

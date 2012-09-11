@@ -30,19 +30,120 @@ General
 
 * Please use a spell checker when you write comments. Typos in
   comments are annoying and distractive, typos in doc strings are
-  bad because we may generate public documentation from those
-  doc strings one day.
+  bad because we generate public documentation from some of those
+  doc strings.
+
+* The `Google Python Style Guide <http://google-styleguide.googlecode.com/svn/trunk/pyguide.html>`_ contains
+  lots of useful things, please read it.
+
+Do not just copy/paste code from the Internet
+----------------------------------------------
+
+It's perfectly fine to look on the Internet for a solution
+of your problem.
+
+If you find a snippet of code you want to copy/paste, please:
+
+* check the license if any (qiBuild must stay BSD compatible, so
+  no GPL code, please)
+* format it first
+* fix the style if necessary
+* cite the origin of your code, either in a comment, or for
+  bigger code, in the README.rst
+
+
+Always specify optional arguments explicitly
+--------------------------------------------
+
+When you have a function looking like ::
+
+    def foo(project, config=None):
+        """ run foo on the given project
+
+        """
+
+Python will let you use ``foo(my_proj, "linux32")``,
+automatically converting the regular argument ``linux32`` into the
+optional argument named ``config``
+
+Please don't do that and use the explicit form instead ::
+
+      # in bar.py
+
+      # BAD : second argument is in fact an optional
+      # argument
+      foo(my_proj, "linux32")
+
+      # OK: the optional argument is explicit:
+      foo(my_proj, config="linux32")
+
+
+This can cause problems if someone ever changes the ``foo`` function and adds a
+new optional argument *before* ``config``::
+
+    def foo(project, clean=False, config=None):
+        """ run foo on the given project
+        :param clean: ...
+
+        """
+
+The line in ``bar.py`` will call ``foo()`` with ``clean="linux32"``
+and ``config=None``, leading to interesting bugs.
+
+Use the standard library
+-------------------------
+
+There are lots of good modules in the Python standard library:
+http://docs.python.org/library/
+
+Please have a look here before re-inventing the wheel.
+
+Some examples:
+
+* `pprint <http://docs.python.org/library/pprint.html>`_, instead of trying to rewrite complex ``__str__`` functions
+
+* `itertools <http://docs.python.org/library/itertools.html>`_, instead of writing for loops.
+
+* ``my_string.ljust()``  instead of writing custom padding code
+
+* ``max(my_list)`` instead of writing a loop to compute the biggest element
+
+* ``my_list = set(a_list_with_duplicates)`` to remove the duplicates from a list.
+
 
 Doc strings
 ------------
 
 Right now the state of the docstrings inside qiBuild are quite a mess.
-But you should try to write docstrings as if all of then were going
-to be use with `sphinx autodoc extension <http://sphinx.pocoo.org/ext/autodoc.html>`_.
+
+But you should try to write docstrings as if all of them were going
+to be used with `sphinx autodoc extension <http://sphinx.pocoo.org/ext/autodoc.html>`_.
+
+Also, please follow `PEP 257 <http://www.python.org/dev/peps/pep-0257>`_
+
+* Multi-line doc strings should end by a blank line and an indented ``"""``
+  on its own line
 
 So the canonical docstring should look like:
 
 .. code-block:: python
+
+    def foo(bar, baz):
+        """Does this and that
+        :param bar: ...
+        :param baz: ...
+
+        :raise: MyError if ...
+        :return: True if ...
+
+        """
+
+But please do not put too much in the doc string, we want to keep
+the code readable.
+
+.. code-block:: python
+
+    # Bad: too much stuff here
 
     def foo(bar, baz):
         """ Does this and that
@@ -52,7 +153,54 @@ So the canonical docstring should look like:
         :raise: MyError if ...
         :return: True if ...
 
+        .. seealso:
+
+            * :ref:`this-other-topic`
+
+        Example ::
+
+          bar = Bar()
+          baz = Baz()
+          f = foo(bar, baz)
+
         """
+
+Rather use the modularity of ``autodoc``:
+
+.. code-block:: python
+
+    # OK: still readable
+
+    def foo(bar, baz):
+        """ Does this and that
+        :param bar: ...
+        :param baz: ...
+
+        :raise: MyError if ...
+        :return: True if ...
+
+
+        """
+
+
+.. code-block:: rst
+
+  .. autofunction:: qibuild.toc.toc_open
+
+  .. seealso:
+
+    * :ref:`this-other-topic`
+
+   Example
+
+   .. code-block:: python
+
+        bar = Bar()
+        baz = Baz()
+        f = foo(bar, baz)
+
+
+
 
 For easy code re-use
 --------------------
@@ -63,7 +211,7 @@ For easy code re-use
 
 * ``import foo`` must never fails, unless there's a necessary module that could
   not be found. But do not catch the ImportError unless it is necessary, for
-  example to deal with optional dependencies, for instance::
+  instance to deal with optional dependencies ::
 
     import required_module
 
@@ -223,21 +371,68 @@ A small example::
   qibuild.command.call(cmd, env=build_env)
 
 
-Logging
--------
+Platform-dependent code
+-----------------------
 
-* Usage of the logging module is advised. It enables you to display nice,
-  colorful messages to the user, helps to debug with the ``-v`` option, has a
-  nice syntax...
-  Please do not use print unless you have a very good reason to.
+Please use::
 
-* Get a logger with::
+  import qibuild
+  platform = qibuild.get_platform()
 
-    import logging
+  if platform == "linux":
+     do_linux()
+  elif platform == "mac":
+    do_mac()
+  elif platform == "windows":
+    do_windows()
 
-    LOGGER = logging.getLogger(__name__)
 
-This makes sure the names of the loggers are always consistent with the source code.
+And do not use ``sys.platform`` directly. This way
+if when we add a new supported platform to ``qibuild``, we will
+know where to patch the code.
+
+Using this is also a good way to do it ::
+
+  import os
+
+  if os.name() == 'posix':
+     # POSIX code
+  elif os.name() == 'nt':
+     # Windows specific code
+
+
+Output messages to the user
+-----------------------------
+
+* Please use ``qibuild.ui`` to print nice message to the user and not
+  just ``print``.
+  This makes it easier to distinguish between real messages and
+  the quick ``printf`` you add for debugging.
+
+* Speaking of debug, the tricky parts of qibuild contains some calls to
+  ``qibuild.ui.debug`` that are only triggered when using ``-v, --verbose``.
+  Don't hesitate to use that, especially when something tricky is going on
+  but you do not want to tell the user about it.
+
+* In the past, we were using ``logging.py`` and a custom log handler to output
+  messages to the console. This was causing lots of problems, and we added
+  a compatibility layer to avoid having to modify to much code.
+  But please do not use ``qibuild.log`` in new code:
+
+.. code-block:: python
+
+  # Don't do this:
+
+  import qibuild.log
+
+  logger = qibuild.log.get_logger(__name__)
+  logger.info("Building :%s", project.name)
+
+  # Do this instead:
+
+  import qibuild.ui
+  qibuild.ui.info("Building", project.name)
+
 
 Debugging
 ---------
@@ -281,7 +476,7 @@ message.
 
 * Wording should look like::
 
-    Could not < descritiion for what went wrong >
+    Could not < description of what went wrong >
     <Detailed explanation>
     Please < suggestion of a solution >
 
@@ -390,9 +585,45 @@ to do something smart by default
 no choice but to ask)
 
 And when you ask, make sure the default action (pressing enter) will
-do the smart thing by default.
+do the smart thing.
 
 Most people will not pay attention to the questions, (and they do not
 have to), so make the default obvious.
 
 (See for instance how ``qibuild config --wizard`` does it)
+
+
+Adding new tests
+-----------------
+
+For historical reasons, lots of the qibuild tests still are using
+``unittest``
+
+
+You should add your new test using ``py.test`` instead.
+
+Basically, for each python module there should be a matching
+test module ::
+
+  qisrc/foo.py
+  qisrc/test/test_foo.py
+
+
+Also, when adding a new action, a good idea is to try to write the
+functionality of your action thinking of it as a library, then add tests for
+the library, and only then add the action.
+
+This makes writing tests much easier, and also makes refactoring easier.
+
+An other way of saying this is that you should usually not find yourself using
+`qibuild.run_action` *inside* the qibuild project, it's rather meant
+to be used from a release script, for instance.
+
+.. code-block:: python
+
+    def continuous_tests():
+        qibuild.run_action("qisrc.actions.pull")
+        qibuild.run_action("qibuild.actions.configure")
+        qibuild.run_action("qibuild.actions.make")
+        qibuild.run_action("qibuild.actions.test")
+

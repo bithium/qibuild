@@ -1,4 +1,3 @@
-## Copyright (c) 2012 Aldebaran Robotics. All rights reserved.
 ## Use of this source code is governed by a BSD-style license that can be
 ## found in the COPYING file.
 
@@ -7,10 +6,12 @@
 """
 
 import os
+import sys
 
-import qidoc.command
+from qibuild import ui
 import qidoc.templates
 import qibuild.sh
+
 
 def configure(src, dest, templates, intersphinx_mapping, doxylink, opts):
     """ Configure a sphinx repo
@@ -37,25 +38,21 @@ def configure(src, dest, templates, intersphinx_mapping, doxylink, opts):
     if not os.path.exists(conf_py_in):
         mess = "Could not configure sphinx sources in:%s \n" % src
         mess += "qidoc/conf.in.py does not exists"
-        raise Exception(mess)
+        ui.warning(mess)
+        return
 
     opts["doxylink"] = str(rel_doxylink)
     opts["intersphinx_mapping"] = str(intersphinx_mapping)
+    opts["themes_path"] = os.path.join(templates, "sphinx", "_themes")
+    opts["themes_path"] = qibuild.sh.to_posix_path(opts["themes_path"])
+    opts["ext_path"] = os.path.join(templates, "sphinx", "tools")
+    opts["ext_path"] = qibuild.sh.to_posix_path(opts["ext_path"])
 
     conf_py_out = os.path.join(src, "qidoc", "conf.py")
     qidoc.templates.configure_file(conf_py_tmpl, conf_py_out,
         append_file=conf_py_in,
         opts=opts)
 
-    # Copy _themes:
-    themes_src = os.path.join(templates, "sphinx", "_themes")
-    themes_dst = os.path.join(src, "qidoc", "_themes")
-    qibuild.sh.install(themes_src, themes_dst, quiet=True)
-
-    # Copy doxylink source code:
-    doxylink_src = os.path.join(templates, "sphinx", "tools", "doxylink")
-    doxylink_dst = os.path.join(src, "qidoc", "tools", "doxylink")
-    qibuild.sh.install(doxylink_src, doxylink_dst, quiet=True)
 
 def gen_download_zips(src):
     """ Process sources of the documentation, looking for
@@ -69,7 +66,8 @@ def gen_download_zips(src):
         for directory in directories:
             zipme = os.path.join(root, directory, ".zipme")
             if os.path.exists(zipme):
-                qibuild.archive.zip_win(os.path.join(root, directory))
+                qibuild.archive.compress(os.path.join(root, directory),
+                                         algo="zip", quiet=True)
 
 
 def build(src, dest, opts):
@@ -78,10 +76,7 @@ def build(src, dest, opts):
     configure() should have been called first
 
     """
-    print
-    print "###"
-    print "# Building sphinx ", src, "->", dest
-    print
+    ui.info(ui.green, "Building sphinx", src)
     config_path = os.path.join(src, "qidoc")
     # Try with sphinx-build2 (for arch), then fall back on
     # sphinx-build
@@ -94,10 +89,23 @@ def build(src, dest, opts):
             raise Exception("sphinx-build not in path, please install it")
         cmd = [sphinx_build]
 
-    cmd.extend(["-c", config_path])
+    if os.path.exists(os.path.join(config_path, "conf.py")):
+        cmd.extend(["-c", config_path])
     if opts.get("werror"):
         cmd.append("-W")
     if opts.get("quiet"):
         cmd.append("-q")
+    for flag in opts.get("flags", list()):
+        cmd.extend(["-D", flag])
     cmd.extend([os.path.join(src, "source"), dest])
-    qidoc.command.call(cmd, cwd=src)
+
+    env = os.environ.copy()
+    release = opts.get("release", False)
+    if release:
+        env["build_type"] = "release"
+    else:
+        env["build_type"] = "internal"
+    # by-pass sphinx-build bug on mac:
+    if sys.platform == "darwin":
+        env["LC_ALL"] = "en_US.UTF-8"
+    qibuild.command.call(cmd, cwd=src, env=env)

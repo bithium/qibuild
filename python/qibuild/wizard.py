@@ -8,6 +8,7 @@
 
 import os
 
+from qibuild import ui
 import qibuild
 import qitoolchain
 
@@ -69,7 +70,7 @@ def ask_incredibuild(qibuild_cfg):
 
     """
     build_env = qibuild.config.get_build_env()
-    answer = qibuild.interact.ask_yes_no("Do you want to use IncrediBuild ?", False)
+    answer = qibuild.interact.ask_yes_no("Do you want to use IncrediBuild?", False)
     if not answer:
         return
 
@@ -97,20 +98,20 @@ def configure_qtcreator(qibuild_cfg):
     build_env = qibuild.config.get_build_env()
     qtcreator_path = qibuild.command.find_program("qtcreator", env=build_env)
     if qtcreator_path:
-        print "Found QtCreator: ", qtcreator_path
-        mess  = "Do you want to use qtcreator from %s ?\n" % qtcreator_path
+        ui.info(ui.green, "::", ui.reset,  "Found QtCreator:", qtcreator_path)
+        mess  = "Do you want to use qtcreator from %s?\n" % qtcreator_path
         mess += "Answer 'no' if you installed qtcreator from Nokia's installer"
         answer = qibuild.interact.ask_yes_no(mess, default=True)
         if not answer:
             qtcreator_path = None
     else:
-        print "QtCreator NOT found"
+        ui.warning("QtCreator not found")
     if not qtcreator_path:
         qtcreator_path = qibuild.interact.ask_program(
             "Please enter full qtcreator path")
     if not qtcreator_path:
-        print "Not adding config for QtCreator"
-        print "qibuild open will not work"
+        ui.warning("Not adding config for QtCreator",
+                   "qibuild open will not work", sep="\n")
         return
     ide.path = qtcreator_path
     qibuild_cfg.add_ide(ide)
@@ -132,15 +133,16 @@ def configure_local_settings(toc):
 
     """
     print
-    print "Found a worktree in", toc.work_tree
+    ui.info(ui.green, "::", ui.reset,  "Found a worktree in", toc.worktree.root)
     answer = qibuild.interact.ask_yes_no(
-        "Do you want to configure settings for this worktree",
+        "Do you want to configure settings for this worktree?",
         default=True)
     if not answer:
         return
     tc_names = qitoolchain.get_tc_names()
     if tc_names:
-        print "Found the following toolchains: ", ", ".join(tc_names)
+        ui.info(ui.green, "::", ui.reset,
+                "Found the following toolchains: ", ", ".join(tc_names))
         answer = qibuild.interact.ask_yes_no(
             "Use one of these toolchains by default",
             default=True)
@@ -151,7 +153,7 @@ def configure_local_settings(toc):
                 toc.config.local.defaults.config = default
                 toc.save_config()
     answer = qibuild.interact.ask_yes_no(
-        "Do you want to use a unique build dir "
+        "Do you want to use a unique build dir?"
         "(mandatory when using Eclipse)",
         default=False)
 
@@ -159,20 +161,22 @@ def configure_local_settings(toc):
     if answer:
         build_dir = qibuild.interact.ask_string("Path to a build directory")
         build_dir = os.path.expanduser(build_dir)
-        full_path = os.path.join(toc.work_tree, build_dir)
-        print "Will use", full_path, "as a root for all build directories"
+        full_path = os.path.join(toc.worktree.root, build_dir)
+        ui.info(ui.green, "::", ui.reset,
+                "Will use", full_path, "as a root for all build directories")
     toc.config.local.build.build_dir = build_dir
     toc.save_config()
 
     sdk_dir = None
     answer = qibuild.interact.ask_yes_no(
-        "Do you want to use a unique SDK dir",
+        "Do you want to use a unique SDK dir?",
         default=False)
     if answer:
         sdk_dir = qibuild.interact.ask_string("Path to a SDK directory")
         sdk_dir = os.path.expanduser(sdk_dir)
-        full_path = os.path.join(toc.work_tree, sdk_dir)
-        print "Will use", full_path, "as a unique SDK directory"
+        full_path = os.path.join(toc.worktree.root, sdk_dir)
+        ui.info(ui.green, "::", ui.reset,
+                "Will use", full_path, "as a unique SDK directory")
     toc.config.local.build.sdk_dir = sdk_dir
     toc.save_config()
 

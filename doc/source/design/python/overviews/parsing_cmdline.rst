@@ -13,11 +13,8 @@ Briefly, you should create a file named ``spam.py`` looking like:
 
   """Add some eggs !"""
 
-  import argparse
-  import logging
   import qibuild
 
-  LOGGER = logging.getLogger(__name__)
 
   def configure_parser(parser):
       """Configure parser for this action """
@@ -30,7 +27,7 @@ Briefly, you should create a file named ``spam.py`` looking like:
 
   def do(args):
     """Main entry point"""
-    LOGGER.info("adding %i eggs", args.num_eggs)
+    qibuild.ui.info("adding %i eggs" % args.num_eggs)
 
 
 
@@ -48,8 +45,8 @@ You will see it uses :
 .. code-block:: python
 
 
-    modules = qibuild.cmdparse.action_modules_from_package("qibuild.actions")
-    qibuild.cmdparse.root_command_main("qibuild", parser, modules)
+    modules = qibuild.script.action_modules_from_package("qibuild.actions")
+    qibuild.script.root_command_main("qibuild", parser, modules)
 
 
 The first line will look for every Python module in the ``qibuild.actions`` package
@@ -64,7 +61,7 @@ So if you ever wanted to add an action outside ``qibuild.actions`` package, you 
 .. code-block:: python
 
     import spam
-    qibuild.cmdparse.root_command_main("qibuild", parser, modules + [spam])
+    qibuild.script.root_command_main("qibuild", parser, modules + [spam])
 
 
 So what does the ``root_command_main`` do?
@@ -79,7 +76,7 @@ The parser will then be updated.
 .. code-block:: python
 
     parser = argparse.ArgumentParser()
-    qibuild.cmdparse.root_command_main("qibuild", parser)
+    qibuild.script.root_command_main("qibuild", parser)
 
 Basically, we will call:
 

@@ -1,18 +1,17 @@
 qibuild modules
 ===============
 
-High level layer
-----------------
+Building projects
+-----------------
 
 .. toctree::
    :maxdepth: 1
 
    toc
    project
-   worktree
    dependencies_solver
 
-Command line parsing
+Parsing command line
 ---------------------
 
 .. toctree::
@@ -29,13 +28,23 @@ Tools
    :maxdepth: 1
 
    cmake
+   cmake_modules
    build
    ctest
+   gdb
+   deploy
    envsetter
    command
    config
    archive
    sh
-   log
+   ui
    interact
    wizard
+
+Test tools
+
+.. toctree::
+   :maxdepth: 1
+
+   test/index

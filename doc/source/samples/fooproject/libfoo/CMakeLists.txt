@@ -2,13 +2,15 @@ include_directories(".")
 
 qi_create_lib(foo
   SRC foo/foo.hpp
-      foo/foo.cpp
-      src/foo_private.hpp
-      src/foo_private.cpp
+      src/foo.cpp
+      src/foo_p.hpp
+      src/foo_p.cpp
   SHARED
 )
 
-qi_use_lib(foo)
+
+# Add dependencies to the foo library here:
+# qi_use_lib(foo ... )
 
 qi_install_header(KEEP_RELATIVE_PATHS foo/foo.hpp)
 

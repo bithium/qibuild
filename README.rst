@@ -21,15 +21,16 @@ https://groups.google.com/a/aldebaran-robotics.com/group/qibuild-dev/topics
 Documentation
 -------------
 
-http://www.aldebaran-robotics.com/documentation/qibuild/index.html
+http://developer.aldebaran-robotics.com/doc/qibuild/
 
 Installation
 ------------
 
-Note that right now this methods are meant for qibuild git users only, so that
+Note that right now these methods are meant for qibuild git users only, so that
 they can update qibuild by just pulling the git repository.
 
-Some "real" packaging is in progress, stay tuned!
+If you wish to package qibuild for your distribution, have a look
+at the INSTALL file.
 
 Linux, Mac
 +++++++++++
@@ -62,8 +63,10 @@ qiBuild contains work from
 
 * gclient http://code.google.com/p/gclient/ (BSD)
 
+* pygments http://pygments.org/ (BSD)
+
 Maintainers
 ------------
 
-Dimitri Merejkowsky <dmerejkowsky@aldebaran-robotics.com>
-Cedric Gestes <gestes@aldebaran-robotics.com>
+* Dimitri Merejkowsky <dmerejkowsky@aldebaran-robotics.com>
+* Cedric Gestes <gestes@aldebaran-robotics.com>

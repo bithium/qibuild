@@ -5,6 +5,8 @@
 """ Collection of parser fonctions for various actions
 """
 
+import qisrc.parsers
+
 def log_parser(parser):
     """ Given a parser, add the options controlling log
     """
@@ -15,6 +17,8 @@ def log_parser(parser):
         help="Only output error messages")
     group.add_argument("--no-color", dest="color", action="store_false",
         help="Do not use color")
+    group.add_argument("--time-stamp", dest="timestamp", action="store_true",
+        help="Add timestamps before each log message")
     group.add_argument("--color", dest = "color", action = "store_false",
                        help = "Colorize output. This is the default")
 
@@ -32,27 +36,26 @@ def default_parser(parser):
     group.add_argument("--quiet-commands", action="store_true", dest="quiet_commands",
         help="Do not print command outputs")
 
-def work_tree_parser(parser):
+def worktree_parser(parser):
     """ Parser settings for every action using a work tree.
     """
-    default_parser(parser)
-    parser.add_argument("--work-tree", help="Use a specific work tree path.")
+    # Just an alias:
+    qisrc.parsers.worktree_parser(parser)
 
 def toc_parser(parser):
     """ Parser settings for every action using a toc dir
     """
-    work_tree_parser(parser)
-    parser.add_argument('-c', '--config',
-        help='The configuration to use. '
-             'If a toolchain exists with the same name '
-             'exists it will be used. '
-             'The settings from [config "<name>"] sections will '
-             'also be used')
+    worktree_parser(parser)
+    parser.add_argument("-c", "--config",
+        help="The configuration to use. "
+             "It should match the name of a toolchain. "
+             "The settings from <worktree>/.qi/<config>.cmake will "
+             "also be used")
 
 def build_parser(parser):
     """ Parser settings for every action doing builds
     """
-    group = parser.add_argument_group("build configuration arguments")
+    group = parser.add_argument_group("build configuration options")
     group.add_argument("--release", action="store_const", const="Release",
         dest="build_type",
         help="Build in release (set CMAKE_BUILD_TYPE=Release)")
@@ -62,7 +65,7 @@ def build_parser(parser):
     group.add_argument("--build-type", action="store",
         dest="build_type",
         help="CMAKE_BUILD_TYPE usually Debug or Release")
-    group.add_argument("--cmake-generator", action="store",
+    group.add_argument("-G", "--cmake-generator", action="store",
         help="Specify the CMake generator")
     group.add_argument("-j", dest="num_jobs", type=int,
         help="Number of jobs to use")
@@ -73,9 +76,17 @@ def build_parser(parser):
 def project_parser(parser):
     """ Parser settings for every action using several toc projects
     """
-    parser.add_argument("-a", "--all", action="store_true",
+    group = parser.add_argument_group("dependency resolution options")
+    group.add_argument("-a", "--all", action="store_true",
         help="Work on all projects")
-    parser.add_argument("-s", "--single", action="store_true",
+    group.add_argument("-s", "--single", action="store_true",
         help="Work on specified projects without taking dependencies into account.")
+    group.add_argument("--build-deps", action="store_true",
+        help="Work on specified projects by ignoring the runtime deps. "
+             "Useful when you have lots of runtime plugins you don't want to compile "
+             "for instance")
+    group.add_argument("--runtime", action="store_true",
+        help="Work on specified projects by using only the runtime deps. "
+             "Mostly used by qibuild install --runtime")
     parser.add_argument("projects", nargs="*", metavar="PROJECT", help="Project name(s)")
-    parser.set_defaults(single=False, projects = list())
+    parser.set_defaults(single=False, build_deps=False, projects = list())

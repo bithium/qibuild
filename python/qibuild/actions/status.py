@@ -9,10 +9,12 @@ import os
 import glob
 import time
 import datetime
-import logging
+import qibuild.log
+
+import qisrc
 import qibuild
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = qibuild.log.get_logger(__name__)
 
 def usage():
     "Specific usage"
@@ -48,12 +50,7 @@ def list_build_dir(path):
 
 def do(args):
     """Main entry point"""
-    qiwt = qibuild.worktree_open(args.work_tree)
-    max_len = 0
-    for pname, ppath in qiwt.buildable_projects.iteritems():
-        if len(pname) > max_len:
-            max_len = len(pname)
-
-    for pname, ppath in qiwt.buildable_projects.iteritems():
-        LOGGER.info("%s", os.path.relpath(ppath, qiwt.work_tree))
-        list_build_dir(ppath)
+    qiwt = qisrc.open_worktree(args.worktree)
+    for project in qiwt.buildable_projects:
+        LOGGER.info("%s", project.src)
+        list_build_dir(project.path)

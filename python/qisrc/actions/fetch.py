@@ -20,80 +20,25 @@ The url should point to a xml file looking like
 
 """
 
-import os
-import logging
-import getpass
+import qibuild.log
+
 import qisrc
 import qibuild
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = qibuild.log.get_logger(__name__)
 
 def configure_parser(parser):
     """Configure parser for this action """
-    qibuild.parsers.work_tree_parser(parser)
+    qibuild.parsers.worktree_parser(parser)
     parser.add_argument("url",
         nargs = "?",
         metavar="URL",
         help="URL of the manifest. "
         "If not specified, use the last known url")
-    parser.add_argument("--username", metavar="USERNAME", 
-        help="username for authentication.")
-    parser.add_argument("-p", "--ask", dest="ask_password", action="store_true", 
-        help="Ask for password to use in all projects.")                
-    parser.add_argument("--password",  metavar="PASSWORD", 
-        help="Ask for password to use in all projects.")
-        
-        
-def setupPassword( args ):
 
-    if args.password:        
-        return None
-    
-    if not args.ask_password:
-        return None
 
-    # Ask user for password.
-    return getpass.getpass("Password: ")
-    
-        
 def do(args):
     """Main entry point
 
     """
-    toc = qibuild.toc.toc_open(args.work_tree)    
-    if args.url:
-        manifest_url = args.url
-    else:
-        manifest = toc.config.local.manifest
-        if manifest is None:
-            mess  = "Could not find URL fo fetch from.\n"
-            mess += "Here is what you can do:\n"
-            mess += " - specify an URL from the command line\n"
-            mess += " - edit %s to have: \n\n" % toc.config_path
-            mess += """<qibuild>
-            <manifest
-                url = ftp://example.com/foo.manifest
-            />
-</qibuild>
-"""
-            raise Exception(mess)
-        manifest_url = manifest.url
-
-    args.password = setupPassword( args )
-
-    qiwt = qibuild.worktree_open(args.work_tree)
-
-    projects = qisrc.parse_manifest(manifest_url)
-
-    for (project_name, project_url) in projects.iteritems():
-        if project_name not in qiwt.git_projects.keys():
-            qibuild.run_action("qisrc.actions.add", [project_url, project_name], args )
-        else:
-            p_path = qiwt.git_projects[project_name]
-            LOGGER.info("Found project %s, skipping", project_name)
-
-    # Everything went fine, store the manifest URL for later use:
-    toc.config.set_manifest_url(manifest_url)
-    toc.save_config()
-
-
+    print "Use qisrc sync instead"

@@ -6,8 +6,11 @@
 
 """
 import os
+import sys
 import glob
 import subprocess
+
+from qibuild import ui
 import qibuild
 
 SUPPORTED_IDES = ["QtCreator", "Visual Studio", "Xcode"]
@@ -19,13 +22,10 @@ def configure_parser(parser):
     parser.add_argument("project", nargs="?")
 
 
-def get_ide(toc):
+def get_ide(qibuild_cfg):
     """ Return an IDE to use
 
     """
-    qibuild_cfg = qibuild.config.QiBuildConfig(user_config=toc.active_config)
-    qibuild_cfg.read()
-    qibuild_cfg.read_local_config(toc.config_path)
     known_ides = qibuild_cfg.ides.values()
     ide_names  = qibuild_cfg.ides.keys()
     if not known_ides:
@@ -61,16 +61,28 @@ def get_ide(toc):
 
 def do(args):
     """Main entry point """
-    toc      = qibuild.toc.toc_open(args.work_tree, args)
-    if not args.project:
-        project_name = qibuild.toc.project_from_cwd()
-    else:
-        project_name = args.project
+    toc = qibuild.toc.toc_open(args.worktree, args)
+    project = qibuild.cmdparse.project_from_args(toc, args)
+    if not os.path.exists(project.build_directory):
+        ui.error("""It looks like your project has not been configured yet
+(The build directory: '%s' does not exists)""" %
+        project.build_directory)
+        answer = qibuild.interact.ask_yes_no(
+            "Do you want me to run qibuild configure for you?",
+            default=True)
+        if not answer:
+            sys.exit(2)
+        else:
+            args = [project.name]
+            if toc.active_config:
+              args.extend(["--config", toc.active_config])
+            qibuild.run_action("qibuild.actions.configure", args)
 
-    project = toc.get_project(project_name)
-
-    error_message = "Could not open project %s\n" % project_name
-    ide = get_ide(toc)
+    error_message = "Could not open project %s\n" % project.name
+    qibuild_cfg = qibuild.config.QiBuildConfig(user_config=toc.active_config)
+    qibuild_cfg.read()
+    qibuild_cfg.read_local_config(toc.config_path)
+    ide = get_ide(qibuild_cfg)
     if not ide:
         return
 

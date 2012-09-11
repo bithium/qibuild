@@ -10,6 +10,8 @@ import os
 import tempfile
 import unittest
 
+import mock
+
 import qibuild
 import qibuild.archive
 import qitoolchain
@@ -34,10 +36,17 @@ class QiToolchainTestCase(unittest.TestCase):
         qitoolchain.toolchain.CONFIG_PATH = os.path.join(self.tmp, "config")
         qitoolchain.toolchain.CACHE_PATH  = os.path.join(self.tmp, "cache")
         qitoolchain.toolchain.SHARE_PATH  = os.path.join(self.tmp, "share")
-
+        self.cfg_patcher = mock.patch('qibuild.config.get_global_cfg_path')
+        qibuild_xml = os.path.join(self.tmp, "qibuild.xml")
+        with open(qibuild_xml, "w") as fp:
+            fp.write("<qibuild />")
+        self.get_cfg_path = self.cfg_patcher.start()
+        self.get_cfg_path.return_value = os.path.join(self.tmp, "qibuild.xml")
 
     def tearDown(self):
         qibuild.sh.rm(self.tmp)
+        self.cfg_patcher.stop()
+
 
     def test_setup(self):
         # Check that we are not modifying normal config
@@ -175,6 +184,12 @@ class FeedTestCase(unittest.TestCase):
         qitoolchain.toolchain.CONFIG_PATH = os.path.join(self.tmp, "config")
         qitoolchain.toolchain.CACHE_PATH  = os.path.join(self.tmp, "cache")
         qitoolchain.toolchain.SHARE_PATH  = os.path.join(self.tmp, "share")
+        self.cfg_patcher = mock.patch('qibuild.config.get_global_cfg_path')
+        qibuild_xml = os.path.join(self.tmp, "qibuild.xml")
+        with open(qibuild_xml, "w") as fp:
+            fp.write("<qibuild />")
+        self.get_cfg_path = self.cfg_patcher.start()
+        self.get_cfg_path.return_value = os.path.join(self.tmp, "qibuild.xml")
 
     def setup_srv(self):
         this_dir = os.path.dirname(__file__)
@@ -188,16 +203,20 @@ class FeedTestCase(unittest.TestCase):
         packages_dir = os.path.join(this_dir, "packages")
         contents = os.listdir(packages_dir)
         for filename in contents:
+            if not os.path.isdir(os.path.join(packages_dir, filename)):
+                continue
             if filename.endswith(".tar.gz"):
                 continue
             if filename.endswith(".zip"):
                 continue
             package_dir = os.path.join(packages_dir, filename)
-            archive = qibuild.archive.zip(package_dir)
-            qibuild.sh.install(archive, self.srv, quiet=True)
+            for algo in ["zip", "gzip"]:
+                archive = qibuild.archive.compress(package_dir, algo=algo)
+                qibuild.sh.install(archive, self.srv, quiet=True)
 
     def tearDown(self):
         qibuild.sh.rm(self.tmp)
+        self.cfg_patcher.stop()
 
     def configure_xml(self, name, dest):
         """ Copy a xml file from the test dir to a
@@ -261,6 +280,11 @@ class FeedTestCase(unittest.TestCase):
         self.assertTrue(expected in tc_file,
             "Did not find %s\n in\n %s" % (expected, tc_file))
 
+        # Check that the sysroot is correct:
+        self.assertEquals(tc.get_sysroot(),
+            os.path.join(ctc_path, "sysroot"))
+
+
     def test_ctc_nonfree(self):
         self.setup_srv()
 
@@ -303,6 +327,14 @@ class FeedTestCase(unittest.TestCase):
 
         self.assertTrue("boost" in package_names)
         self.assertTrue("naoqi" in package_names)
+
+    def test_blacklist(self):
+        self.setup_srv()
+        full_noboost_xml = os.path.join(self.srv, "full-noboost.xml")
+        tc = qitoolchain.Toolchain("full-no-boost")
+        tc.parse_feed(full_noboost_xml)
+        package_names = [p.name for p in tc.packages]
+        self.assertFalse("boost" in package_names)
 
     def test_master_maint(self):
         self.setup_srv()
@@ -370,7 +402,7 @@ class FeedTestCase(unittest.TestCase):
         a_file = os.path.join(a_package, "a_file")
         with open(a_file, "w") as fp:
             fp.write("This file is not empty\n")
-        archive = qibuild.archive.zip(a_package)
+        archive = qibuild.archive.compress(a_package)
         package_name = os.path.basename(archive)
 
         # Create a fake feed:
@@ -393,4 +425,3 @@ class FeedTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

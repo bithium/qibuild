@@ -10,12 +10,12 @@ import os
 import re
 import sys
 import difflib
-import logging
+import qibuild.log
 from xml.etree import ElementTree as etree
 
 import qibuild
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = qibuild.log.get_logger(__name__)
 
 def guess_project_name(source_dir):
     """ Try to guess the project name
@@ -122,7 +122,7 @@ def fix_root_cmake(cmakelists, project_name, dry_run=True):
 
 cmake_minimum_required(VERSION 2.8)
 project({project_name})
-include(qibuild.cmake)
+find_package(qibuild)
 
 # qi_create_lib(...)
 

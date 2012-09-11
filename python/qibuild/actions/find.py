@@ -19,24 +19,19 @@ def configure_parser(parser):
     parser.add_argument("--libs",
         help="Ouputs required linnker flags")
     parser.add_argument("package")
-    parser.add_argument("project_name", nargs="?", metavar="project",
+    parser.add_argument("project", nargs="?", metavar="project",
         help="The name of a project")
     parser.set_defaults(quiet=True)
 
 
 def do(args):
     """Main entry point """
-    toc = qibuild.toc.toc_open(args.work_tree, args)
+    toc = qibuild.toc.toc_open(args.worktree, args)
     package = args.package
-    project_name = args.project_name
-    if not project_name:
-        project_name = qibuild.toc.project_from_cwd()
-
-
-    project = toc.get_project(project_name)
+    project = qibuild.cmdparse.project_from_args(toc, args)
     cmake_cache = os.path.join(project.build_directory, "CMakeCache.txt")
     if not os.path.exists(cmake_cache):
-        print "Could not find CMakeCache for project %s" % project_name
+        print "Could not find CMakeCache for project %s" % project.name
         print "Try using `qibuild configure` first"
         sys.exit(2)
     cache = qibuild.cmake.read_cmake_cache(cmake_cache)

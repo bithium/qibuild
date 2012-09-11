@@ -36,10 +36,38 @@ to run the tests, so not all features of ``set_test_properties`` are handled ...
 Also, ``qibuild test`` is optimized to be used with `Jenkins <http://jenkins-ci.org/>`_,
 **not** with upstream's ``CDash``.
 
-qibuild test features
-~~~~~~~~~~~~~~~~~~~~~
+Caveats
++++++++
 
-* `qibuild test` will always generate Junite-like XML files to
+If you are using ``add_test()`` directly, make sure
+the second argument is **the full path** of the tests you are building
+
+.. code-block:: cmake
+
+     # Bad : `qibuild test` won't know where ``test_foo`` is:
+     add_executable(test_foo test_foo.cpp)
+     add_test(test_foo test_foo)
+
+     # OK: we set the RUNTIME_OUTPUT_PROPERTIES and use it:
+     set(_out "${CMAKE_CURRENT_BINARY_DIR}")
+     add_executable(${name}  ${${name}_SRC})
+     set_target_properties("${name}" PROPERTIES
+         RUNTIME_OUTPUT_DIRECTORY         "${_out}"
+     )
+     add_test(${name} "${_out}/${name}")
+
+     # OK: does the same as above but with just one line ;)
+     qi_create_test(test_foo test_foo.cpp)
+
+
+You should always call ``enable_testing()`` for ``qibuild test`` to work.
+If you don't want to build any test, you should set ``BUILD_TESTS=OFF``.
+
+
+qibuild test features
+---------------------
+
+* `qibuild test` will always generate JUnit-like XML files to
   ``project/build-tests/results``, so you do not have to use any test framework
   to generate the XML for you.
 
@@ -82,3 +110,11 @@ qibuild test features
 * The tests will run from the main CMake build dir, instead of ``CMAKE_CURRENT_SOURCE_DIR``.
   So if ``qi_add_test`` is in ``src/foo/bar/CMakeLists.txt``, the working dir will be
   ``src/foo/build/`` instead of ``src/foo/build/bar``.
+
+
+* CMake lets you define a ``COST`` propertiy as a float for your tests, so that
+  CTest will run the tests with higher cost first. We think this is not a useful
+  feature, and instead we introduce the concept of 'SLOW' tests, which are disabled
+  by default and will only run when using ``qibuild test --slow``, but the
+  underlying implementation uses the ``COST`` properties (tests with cost higher
+  than 50 are considred to be slow)

@@ -71,6 +71,7 @@ include("qibuild/target")
 include("qibuild/submodule")
 include("qibuild/stage")
 include("qibuild/option")
+include("qibuild/codegen")
 
 # Find libraries from self sdk dir before everything else.
 qi_prepend_uniq_global(CMAKE_FIND_ROOT_PATH "${QI_SDK_DIR}")
@@ -111,3 +112,20 @@ qi_debug("CMAKE_MODULE_PATH     = ${CMAKE_MODULE_PATH}")
 qi_debug("CMAKE_INCLUDE_PATH    = ${CMAKE_INCLUDE_PATH}")
 qi_debug("CMAKE_SYSTEM_LIBRARY_PATH = ${CMAKE_SYSTEM_LIBRARY_PATH}")
 
+
+# Small option to deactivate targets created by qi_add_test et al.
+option(BUILD_TESTS
+  "If OFF, no test will be built, and `qibuild test` won't run any test"
+  ON)
+option(QI_NIGHTLY_TESTS "triggers building of nightly tests" OFF)
+
+# change default for CMAKE_INSTALL_PREFIX
+# (it's c:\program files\<project> on Windows, and
+# /usr/local elsewhere)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  qi_set_global(CMAKE_INSTALL_PREFIX "/")
+endif()
+
+# Always create an install rule, so that `qibuild install` never
+# fails
+install(CODE "")

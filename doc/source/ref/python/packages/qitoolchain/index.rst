@@ -5,8 +5,7 @@ qitoolchain modules
     :maxdepth: 1
 
     toolchain
+    packages
     feed
     remote
     version
-
-

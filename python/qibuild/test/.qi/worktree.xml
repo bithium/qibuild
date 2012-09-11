@@ -1,0 +1,10 @@
+<worktree>
+  <project src="bar" />
+  <project src="debugme" />
+  <project src="foo" />
+  <project src="footool" />
+  <project src="hello" />
+  <project src="stagelib" />
+  <project src="uselib" />
+  <project src="world" />
+</worktree>

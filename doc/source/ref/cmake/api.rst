@@ -23,6 +23,7 @@ qibuild CMake API functions
    api/target
    api/stage
    api/install
+   api/codegen
    api/submodule
    api/tests
    api/log
@@ -30,3 +31,4 @@ qibuild CMake API functions
    api/find
    api/flags
    api/swig/python
+   api/swig/java

@@ -12,18 +12,18 @@ import sys
 import glob
 import platform
 import signal
-import logging
 import operator
 
+from qibuild import ui
+import qisrc
 import qibuild
+import qibuild.gdb
 import qitoolchain
 
 from qibuild.project  import Project
-from qibuild.worktree import WorkTree
+from qisrc.worktree import WorkTree
 from qibuild.command  import CommandFailedException
 from qibuild.dependencies_solver import DependenciesSolver
-
-LOGGER = logging.getLogger("qibuild.toc")
 
 
 class TocException(Exception):
@@ -65,12 +65,10 @@ class BuildFailed(Exception):
         return "Error occured when building project %s" % self.project.name
 
 class TestsFailed(Exception):
-    def __init__(self, project, summary):
+    def __init__(self, project):
         self.project = project
-        self.summary = summary
     def __str__(self):
         res  = "Error occured when testing project %s\n" % self.project.name
-        res += self.summary
         return res
 
 class InstallFailed(Exception):
@@ -80,16 +78,14 @@ class InstallFailed(Exception):
         return "Error occured when installing project %s" % self.project.name
 
 
-class Toc(WorkTree):
+class Toc:
     """
-    This class inherits from :py:class:`qibuild.worktree.WorkTree`,
-    so it has a list of projects.
-
     Example of use:
 
     .. code-block:: python
 
-        toc = Toc("/path/to/work/tree", build_type="release")
+        worktree = qisrc.open_worktree("/path/to/src")
+        toc = Toc(worktree=worktree, build_type="release")
 
         # Look for the foo project in the worktree
         foo = toc.get_project("foo")
@@ -102,21 +98,17 @@ class Toc(WorkTree):
         toc.build_project(foo)
 
     """
-    def __init__(self, work_tree,
-            path_hints=None,
+    def __init__(self, worktree,
             config=None,
             qibuild_cfg=None,
             build_type="Debug",
             cmake_flags=None,
-            cmake_generator=None,
-            active_projects=None,
-            solve_deps=True):
+            cmake_generator=None):
         """
         Create a new Toc object. Most of the keyargs come directly from
-        the command line. (--wortree, --debug, -c, etc.)
+        the command line. (--worktree, --debug, -c, etc.)
 
-        :param work_tree:  see :py:meth:`qibuild.worktree.WorkTree.__init__`
-        :param path_hints: see :py:meth:`qibuild.worktree.WorkTree.__init__`
+        :param worktree:  see :py:meth:`qisrc.worktree.WorkTree.__init__`
         :param qibuild_cfg: a  :py:class:`qibuild.config.QiBuildConfig` instance
                             if not given, a new one will be created
         :param build_type: a build type, could be debug or release
@@ -124,25 +116,26 @@ class Toc(WorkTree):
         :param cmake_flags:     optional additional cmake flags
         :param cmake_generator: optional cmake generator
                          (defaults to Unix Makefiles)
-        :param active_projects: the projects excplicitely specified by user
         """
-        WorkTree.__init__(self, work_tree, path_hints=path_hints)
+        # Set during qibuild.cmdparse.projects_from_args and
+        # used by get_sdk_dirs().
+        # Why? Assume you have hello depending on world, which is both
+        # a project and a pacakge.
+        # qc hello  -> get_sdk_dirs('hello') = []
+        # qc world hello -> get_sdk_dirs('hello') = ["world/build/sdk"]
+        self.active_projects = list()
+        self.worktree = worktree
         # The local config file in which to write
-        self.config_path = os.path.join(self.work_tree, ".qi", "qibuild.xml")
-
-        # When you are running toc actions for a qibuild project, sometimes
-        # a Toc object is created on the fly (Using toc_open with a non
-        # empty path_hints) variable.
-        # In this case, the .qi directory may not even exists, nor the
-        # .qi directory, so create it:
+        dot_qi = os.path.join(self.worktree.root, ".qi")
+        qibuild.sh.mkdir(dot_qi)
+        self.config_path =  os.path.join(dot_qi, "qibuild.xml")
         if not os.path.exists(self.config_path):
-            to_create = os.path.dirname(self.config_path)
-            qibuild.sh.mkdir(to_create, recursive=True)
             with open(self.config_path, "w") as fp:
                 fp.write("<qibuild />\n")
+
         # Perform format conversion if necessary
-        handle_old_qibuild_cfg(self.work_tree)
-        handle_old_qibuild_xml(self.work_tree)
+        handle_old_qibuild_cfg(self.worktree.root)
+        handle_old_qibuild_xml(self.worktree.root)
 
         # Handle config:
         if not qibuild_cfg:
@@ -172,15 +165,6 @@ class Toc(WorkTree):
         # this is updated using WorkTree.buildable_projects
         self.projects          = list()
 
-        # The list of projects the user asked for from command
-        # line.
-        # Set by toc_open()
-        if not active_projects:
-            self.active_projects = list()
-        else:
-            self.active_projects = active_projects
-        self.solve_deps = solve_deps
-
         # Set cmake generator if user has not set if in Toc ctor:
         if not self.cmake_generator:
             self.cmake_generator = self.config.cmake.generator
@@ -197,7 +181,7 @@ class Toc(WorkTree):
                 self.packages  = self.toolchain.packages
             else:
                 # The config does not match a toolchain
-                local_dir = os.path.join(self.work_tree, ".qi")
+                local_dir = os.path.join(self.worktree.root, ".qi")
                 local_cmake = os.path.join(local_dir, "%s.cmake" % self.active_config)
                 if not os.path.exists(local_cmake):
                     mess  = """Invalid configuration {active_config}
@@ -212,12 +196,21 @@ class Toc(WorkTree):
                     if self.active_config == self.config.local.defaults.config:
                         mess += """Note: this is your default config
 You may want to run:
- * `qibuild init --force`  (to re-initialize your worktree and not use any toolchain)
- * `qibuild init --force` --config=<config> (to use a different toolchain by default)
+
+  qibuild init --force -w {worktree.root}
+(to re-initialize your worktree and not use any toolchain)
+
+  qibuild init --force -w {worktree.root} --config=<config>
+(to use a different toolchain by default)
  """
+                        mess = mess.format(worktree=self.worktree)
                         raise WrongDefaultException(mess)
                     else:
                         raise Exception(mess)
+        if self.toolchain:
+            self.packages = self.toolchain.packages
+        else:
+            self.packages = list()
 
         # Useful vars to cope with Visual Studio quirks
         self.using_visual_studio = "Visual Studio" in self.cmake_generator
@@ -256,11 +249,23 @@ You may want to run:
 
         """
         self.set_build_folder_name()
+        seen = dict()
 
         # self.buildable_projects has been set by WorkTree.__init__
-        for pname, ppath in self.buildable_projects.iteritems():
-            project = Project(pname, ppath)
-            self.projects.append(project)
+        for worktree_project in self.worktree.buildable_projects:
+            # Promote the simple worktree project (just a name an a src dir),
+            # inside a full qibuild.project.Project object
+            # (with CMake flags, build dir, et al.)
+            project_path = worktree_project.path
+            qibuild_project = qibuild.project.Project(project_path)
+            project_name = qibuild_project.name
+            if project_name in seen:
+                mess  = "Found two qibuild projects with the same name (%s)\n" % qibuild_project.name
+                mess += "  * in %s\n" % seen[qibuild_project.name]
+                mess += "  * in %s\n" % project_path
+                raise Exception(mess)
+            self.projects.append(qibuild_project)
+            seen[project_name] = project_path
 
         # Small warning here: when we update the projects, we do NOT
         # have the complete list of the projects, their dependencies,
@@ -298,19 +303,33 @@ You may want to run:
 
         self.build_folder_name = "-".join(res)
 
-    def get_project(self, project_name):
+    def get_project(self, project_name, raises=True):
         """ Get a project from a name.
 
-        :return: A vali :py:class:`qibuild.project.Project` instance
+        :return: A valid :py:class:`qibuild.project.Project` instance
         :raise: a TocException if the project was not found
 
         """
         res = [p for p in self.projects if p.name == project_name]
         if len(res) == 1:
             return res[0]
-        else:
+        if raises:
             raise TocException("No such project: %s" % project_name)
+        else:
+            return None
 
+    def get_package(self, package_name, raises=True):
+        """
+        :return: A valid :py:class:`qitoolchain.toolchain.Package` instance
+        :raise: a TocException if the project was not found
+
+        """
+        res = [p for p in self.packages if p.name == package_name]
+        if len(res) == 1:
+            return res[0]
+        if raises:
+            raise TocException("No such package: %s" % package_name)
+        return None
 
     def get_sdk_dirs(self, project_name):
         """ Return a list of sdk needed to build a project.
@@ -331,7 +350,6 @@ You may want to run:
         if project_name not in known_project_names:
             raise TocException("%s is not a buildable project" % project_name)
 
-        # Here do not honor self.solve_deps or the software won't compile :)
         dep_solver = DependenciesSolver(projects=self.projects, packages=self.packages,
             active_projects=self.active_projects)
         (r_project_names, _package_names, not_found) = dep_solver.solve([project_name])
@@ -344,58 +362,22 @@ You may want to run:
             # FIXME: right now there are tons of case where you could have missing
             # projects. (using a cross-toolchain, or an Aldebaran SDK)
             # Put this back later.
-            # LOGGER.warning("Could not find projects %s", ", ".join(not_found))
+            # ui.warning("Could not find projects", ", ".join(not_found))
             pass
 
         # Remove self from the list:
         r_project_names.remove(project_name)
 
-
         for project_name in r_project_names:
             project = self.get_project(project_name)
             dirs.append(project.get_sdk_dir())
 
-        LOGGER.debug("sdk_dirs for %s : %s", project_name, dirs)
+        ui.debug("sdk_dirs for", project_name, ":", " ".join(dirs))
         return dirs
 
 
-    def resolve_deps(self, runtime=False):
-        """ Return a tuple of three lists:
-        (projects, packages, not_foud), see :py:mod:`qibuild.dependencies_solver`
-        for more information.
-
-        Note that the result depends on how the Toc object has been built.
-
-        For instance, assuming you have 'hello' depending on 'world', and
-        'world' is also a package, you will get:
-
-        (['hello'], ['world'], [])  if user used
-
-        .. code-block:: console
-
-           $ qibuild configure hello
-
-        but:
-
-        (['world', 'hello], [], []) if user used:
-
-        .. code-block:: console
-
-           $ qibuild configure world hello
-
-        """
-        if not self.solve_deps:
-            return (self.active_projects, list(), list())
-        else:
-            dep_solver = DependenciesSolver(projects=self.projects,
-                                            packages=self.packages,
-                                            active_projects=self.active_projects)
-            return dep_solver.solve(self.active_projects,
-                                    runtime=runtime)
-
-    def configure_project(self, project,
-        clean_first=True,
-        debug_trycompile=False):
+    def configure_project(self, project, clean_first=True,
+                         debug_trycompile=False, profile=False):
         """ Call cmake with correct options.
 
         :param clean_first: If False, do not delete CMake cache.
@@ -403,6 +385,8 @@ You may want to run:
             `qibuild configure`.
         :param debug_trycompile: If True, will pass --debug-trycompile.
             Useful when detecting compiler fails
+        :param profile: If Ture, will run cmake --trace, and then
+            generate some stats.
 
         """
         if not os.path.exists(project.directory):
@@ -431,6 +415,9 @@ You may want to run:
         if debug_trycompile:
             cmake_args.append("--debug-trycompile")
 
+        if profile:
+            cmake_args.append("--trace")
+
         if "MinGW" in self.cmake_generator:
             paths = self.build_env["PATH"].split(os.pathsep)
             paths_withoutsh = list()
@@ -444,7 +431,8 @@ You may want to run:
                           project.build_directory,
                           cmake_args,
                           clean_first=clean_first,
-                          env=self.build_env)
+                          env=self.build_env,
+                          profile=profile)
         except CommandFailedException, e:
             if e.returncode == -signal.SIGSEGV:
                 mess = "CMake crashed. "
@@ -455,17 +443,26 @@ You may want to run:
             raise ConfigureFailed(project, message=mess)
 
 
-    def build_project(self, project, incredibuild=False, num_jobs=1, target=None, rebuild=False):
+    def build_project(self, project, incredibuild=False,
+                      num_jobs=1, target=None, rebuild=False,
+                      fix_shared_libs=True):
         """ Build a project.
 
         Usually we will simply can ``cmake --build``, but for incredibuild
         we need to call `BuildConsole.exe` with an sln.
 
+        :param fix_shared_libs: Wether we should try to fix the shared
+                                libraries so that newly compiled
+                                executables can run wihtout setting
+                                PATH or LD_LIBRARY_PAT.
+                                True by default, but is set to False
+                                during `qibuild package` for instance
+
         """
         build_dir = project.build_directory
         cmake_cache = os.path.join(build_dir, "CMakeCache.txt")
         if not os.path.exists(cmake_cache):
-            _advise_using_configure(self, project)
+            advise_using_configure(self, project)
 
         cmd = ["cmake", "--build", build_dir, "--config", self.build_type]
         if target:
@@ -474,30 +471,25 @@ You may want to run:
         if rebuild:
             cmd += ["--clean-first"]
         cmd += [ "--" ]
-        # In order to use incredibuild, we have to do this small hack:
-        if self.using_visual_studio:
+        cmd += num_jobs_to_args(num_jobs, self.cmake_generator)
+        if self.using_visual_studio and incredibuild:
+            # In order to use incredibuild, we have to do this small hack:
+            # (CMake --build will still call devenv.com instead of BuildConsole.exe)
             sln_files = glob.glob(build_dir + "/*.sln")
             assert len(sln_files) == 1, "Expecting only one sln, got %s" % sln_files
-            if incredibuild:
-                sln_file = sln_files[0]
-                cmd = ["BuildConsole.exe", sln_file]
-                cmd += ["/cfg=%s|Win32" % self.build_type]
-                cmd += ["/nologo"]
-                if target:
-                    cmd += ["/target=%s" % target]
-            else:
-                if num_jobs > 1 and "visual studio" in self.cmake_generator.lower():
-                    cmd += ["/m:%d" % num_jobs]
-
-        if num_jobs > 1 and "make" in self.cmake_generator.lower():
-            cmd += [ "-j%d" % num_jobs]
-
+            sln_file = sln_files[0]
+            cmd = ["BuildConsole.exe", sln_file]
+            cmd += ["/cfg=%s|Win32" % self.build_type]
+            cmd += ["/nologo"]
+            if target:
+                cmd += ["/target=%s" % target]
         try:
             qibuild.command.call(cmd, env=self.build_env)
         except CommandFailedException:
             raise BuildFailed(project)
 
-        self.fix_shared_libs(project)
+        if fix_shared_libs:
+            self.fix_shared_libs(project)
 
 
     def fix_shared_libs(self, project):
@@ -513,8 +505,10 @@ You may want to run:
         for package in self.packages:
             paths.append(package.path)
 
-        sdk_dirs = self.get_sdk_dirs(project.name)
-        paths.extend(sdk_dirs)
+        unique_sdk_dir = self.config.local.build.sdk_dir
+        if not unique_sdk_dir:
+            sdk_dirs = self.get_sdk_dirs(project.name)
+            paths.extend(sdk_dirs)
 
         if sys.platform.startswith("win"):
             mingw = "mingw" in self.cmake_generator.lower()
@@ -526,26 +520,9 @@ You may want to run:
             import qibuild.dylibs
             qibuild.dylibs.fix_dylibs(sdk_dir, paths=paths)
 
-
-    def test_project(self, project, test_name=None):
-        """Run qibuild.ctest on a project
-
-        :param test_name: if given, only this test will run
-
-        """
-        build_dir = project.build_directory
-        cmake_cache = os.path.join(build_dir, "CMakeCache.txt")
-        if not os.path.exists(cmake_cache):
-            _advise_using_configure(self, project)
-        (res, summary) = qibuild.ctest.run_tests(project, self.build_env,
-            test_name=test_name)
-        if res:
-            LOGGER.info(summary)
-        else:
-            raise TestsFailed(project, summary)
-
-
-    def install_project(self, project, destdir, runtime=False):
+    def install_project(self, project, destdir, prefix="/",
+                        runtime=False, num_jobs=1,
+                        split_debug=False):
         """ Install the project
 
         :param project: project name.
@@ -556,21 +533,66 @@ You may want to run:
         :param runtime: Whether to install the project as a runtime
            package or not.
            (see :ref:`cmake-install` section for the details)
+        :package split_debug: split the debug symbols out of the binaries
+            useful for `qibuild deploy`
 
         """
         build_dir = project.build_directory
+        # DESTDIR=/tmp/foo and CMAKE_PREFIX="/usr/local" means
+        # dest = /tmp/foo/usr/local
+        destdir = qibuild.sh.to_native_path(destdir)
         self.build_env["DESTDIR"] = destdir
-        try:
-            if runtime:
-                self.install_project_runtime(project, destdir)
-            else:
-                cmd = ["cmake", "--build", build_dir, "--config", self.build_type,
-                        "--target", "install"]
-                qibuild.command.call(cmd, env=self.build_env)
-        except CommandFailedException:
-            raise InstallFailed(project)
+        # Must make sure prefix is not seen as an absolute path here:
+        dest = os.path.join(destdir, prefix[1:])
+        dest = qibuild.sh.to_native_path(dest)
+        cmake_cache = os.path.join(build_dir, "CMakeCache.txt")
+        if not os.path.exists(cmake_cache):
+            mess  = """Could not install project {project.name}
+It appears the project has not been configured.
+({cmake_cache} does not exist)
+Try configuring and building the project first.
+"""
+            mess = mess.format(config=self.active_config,
+                project=project, cmake_cache=cmake_cache)
+            raise Exception(mess)
 
-    def install_project_runtime(self, project, destdir):
+        cprefix = qibuild.cmake.get_cached_var(build_dir, "CMAKE_INSTALL_PREFIX")
+        if cprefix != prefix:
+            qibuild.cmake.cmake(project.directory, project.build_directory,
+                ['-DCMAKE_INSTALL_PREFIX=%s' % prefix],
+                clean_first=False,
+                env=self.build_env)
+        else:
+            mess = "Skipping configuration of project %s\n" % project.name
+            mess += "CMAKE_INSTALL_PREFIX is already correct"
+            ui.debug(mess)
+
+        if "Unix Makefiles" in self.cmake_generator:
+            self.build_project(project, target="preinstall", num_jobs=num_jobs,
+                               fix_shared_libs=False)
+
+        if runtime:
+            self.install_project_runtime(project, destdir, num_jobs=num_jobs)
+        else:
+            self.build_project(project, target="install", fix_shared_libs=False)
+
+        if split_debug:
+            if self.using_visual_studio:
+                raise Exception("split debug not supported on Visual Studio")
+            objcopy = qibuild.cmake.get_cached_var(project.build_directory, "CMAKE_OBJCOPY")
+            if objcopy is None:
+                objcopy = qibuild.command.find_program("objcopy", env=self.build_env)
+
+            if not objcopy:
+                mess  = """\
+Could not split debug symbols from binaries for project {project.name}.
+Could not find objcopy executable.\
+"""
+                qibuild.ui.warning(mess.format(project=project))
+            else:
+                qibuild.gdb.split_debug(destdir, objcopy=objcopy)
+
+    def install_project_runtime(self, project, destdir, num_jobs=1):
         """Install runtime component of a project to a destdir """
         runtime_components = [
              "binary",
@@ -584,55 +606,19 @@ You may want to run:
             self.build_env["DESTDIR"] = destdir
             cmake_args = list()
             cmake_args += ["-DCOMPONENT=%s" % component]
-            cmake_args += ["-P", "cmake_install.cmake"]
-            LOGGER.debug("Installing %s", component)
+            cmake_args += ["-P", "cmake_install.cmake", "--"]
+            cmake_args += num_jobs_to_args(num_jobs, self.cmake_generator)
+            ui.debug("Installing", component)
             qibuild.command.call(["cmake"] + cmake_args,
                 cwd=project.build_directory,
                 env=self.build_env,
                 )
 
 
-
-def _projects_from_args(toc, args):
-    """
-    Cases handled:
-      - nothing specified: get the project from the cwd
-      - args.single: do not resolve dependencies
-      - args.all: return all projects
-    Returns a tuple (project_names, single):
-        project_names: the actual list for project
-        single: user specified --single
-    """
-    toc_p_names = [p.name for p in toc.projects]
-    if hasattr(args, "all") and args.all:
-        # Pretend the user has asked for all the known projects
-        LOGGER.debug("select: All projects have been selected")
-        return (toc_p_names, False)
-
-    if hasattr(args, "projects"):
-        if args.projects:
-            LOGGER.debug("select: projects list from arguments: %s", ",".join(args.projects))
-            return ([args.projects, args.single])
-        else:
-            from_cwd = None
-            try:
-                from_cwd = project_from_cwd()
-            except:
-                pass
-            if from_cwd:
-                LOGGER.debug("select: projects from cwd: %s", from_cwd)
-                return ([from_cwd], args.single)
-            else:
-                LOGGER.debug("select: default to all projects")
-                return (toc_p_names, args.single)
-    else:
-        return (list(), False)
-
-
-def toc_open(work_tree, args=None, qibuild_cfg=None):
+def toc_open(worktree_root, args=None, qibuild_cfg=None):
     """ Creates a :py:class:`Toc` object.
 
-    :param worktree: The worktree to be used. (see :py:class:`qibuild.worktree.WorkTree`)
+    :param worktree: The worktree to be used. (see :py:class:`qisrc.worktree.WorkTree`)
     :param args: an ``argparse.NameSpace`` object containing
      the arguments passed from the comand line.
     :param qibuild_cfg: A (:py:class:`qibuild.config.QiBuildConfig` instance) to use.
@@ -646,13 +632,12 @@ def toc_open(work_tree, args=None, qibuild_cfg=None):
 
     """
     # Not that args can come from:
-    #    - a work_tree parser
+    #    - a worktree parser
     #    - a toc parser
     #    - a build parser
     # (hence all the hasattr...)
     # ...
     # or simply not given :)
-    path_hints     = list()
 
     config = None
     if hasattr(args, 'config'):
@@ -670,64 +655,53 @@ def toc_open(work_tree, args=None, qibuild_cfg=None):
     if hasattr(args, 'cmake_generator'):
         cmake_generator = args.cmake_generator
 
-    if not work_tree:
-        work_tree = qibuild.worktree.guess_work_tree()
-    current_project = qibuild.worktree.search_current_project_root(os.getcwd())
-    if not work_tree:
-        # Sometimes we you just want to create a fake worktree object because
-        # you just want to build one project (no dependencies at all, no configuration...)
-        # In this case, just searching for a manifest from the current working directory
-        # is enough
-        work_tree = current_project
-        LOGGER.debug("no work tree found using the project root: %s", work_tree)
-
-    if current_project:
-        #we add the current project as a hint, see the function doc
-        path_hints.append(current_project)
-
-    if work_tree is None:
-        raise TocException("Could not find a work tree, "
-            "please try from a valid work tree, specify an "
-            "existing work tree with '--work-tree {path}', or "
-            "create a new work tree with 'qibuild init'")
-
-    toc = Toc(work_tree,
+    worktree = qisrc.worktree.open_worktree(worktree_root)
+    toc = Toc(worktree,
                config=config,
                build_type=build_type,
                cmake_flags=cmake_flags,
                cmake_generator=cmake_generator,
-               path_hints=path_hints,
                qibuild_cfg=qibuild_cfg)
-
-    (active_projects, single) =  _projects_from_args(toc, args)
-    toc.active_projects = active_projects
-    LOGGER.debug("active projects: %s", ".".join(toc.active_projects))
-    LOGGER.debug("single: %s", str(single))
-    toc.solve_deps = (not single)
     return toc
 
+def num_jobs_to_args(num_jobs, cmake_generator):
+    """ Convert a number of jobs to a list of cmake args
 
-def create(directory):
-    """ Create a new toc work_tree inside a work tree
+    >>> num_jobs_to_args(3, "Unix Makefiles")
+    ["-j", "3"]
+
+    >>> num_jobs_to_args(3, "NMake Makefiles"
+    Error: -j is not supported for NMake, use Jom
+
+    >>> num_jobs_to_args(3, "Visual Studio")
+    Warning: -j is ignored for Visual Studio
 
     """
-    qibuild.worktree.create(directory)
 
+    if num_jobs == 1:
+        return list()
+    if "Unix Makefiles" in  cmake_generator:
+        return ["-j", str(num_jobs)]
+    if cmake_generator == "NMake Makefiles":
+        mess   = "-j is not supported for %s\n" % cmake_generator
+        mess += "On windows, you can use Jom instead to compile "
+        mess += "with multiple processors"
+        raise Exception(mess)
+    if "Visual Studio" in cmake_generator or \
+        cmake_generator == "Xcode" or \
+        "JOM" in cmake_generator:
+        ui.warning("-j is ignored when used with", cmake_generator)
+        return list()
+    ui.warning("cannot parse -j into a cmake option for generator: %s" % cmake_generator)
+    return list()
 
-
-def project_from_cwd():
-    """Return a project name from the current working directory
+def create(directory, force=False):
+    """ Create a new toc worktree inside a work tree
 
     """
-    project_dir = qibuild.worktree.search_current_project_root(os.getcwd())
-    if not project_dir:
-        raise Exception("Could not guess project name from the working directory.\n"
-                "Please go to a subdirectory of a project\n"
-                "or specify the name of the project.")
-    return qibuild.project.name_from_directory(project_dir)
+    qisrc.worktree.create(directory, force=force)
 
-
-def _advise_using_configure(self, project):
+def advise_using_configure(self, project):
     """Just throw a nice exception because
     CMakeCache.txt was not found.
 
@@ -783,5 +757,3 @@ def handle_old_qibuild_xml(worktree):
     qibuild.sh.mkdir(os.path.dirname(global_path), recursive=True)
     with open(global_path, "w") as fp:
         fp.write(global_xml)
-
-

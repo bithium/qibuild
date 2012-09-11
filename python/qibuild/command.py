@@ -9,20 +9,21 @@
 import os
 import sys
 import contextlib
-import logging
 import subprocess
 import threading
 import Queue
 
+from qibuild import ui
 import qibuild
-
-LOGGER = logging.getLogger(__name__)
 
 
 # Quick hack: in order to be able to configure how
 # qibuild.command works, we have to use this
 # global variable
 CONFIG = dict()
+
+# Cache for find_program()
+_FIND_PROGRAM_CACHE = dict()
 
 class ProcessThread(threading.Thread):
     """ A simple way to run commands.
@@ -33,7 +34,7 @@ class ProcessThread(threading.Thread):
     object in self.process
 
     """
-    def __init__(self, cmd, name=None, cwd=None, env=None):
+    def __init__(self, cmd, name=None, verbose=False, cwd=None, env=None):
         if name is None:
             thread_name = "ProcessThread"
         else:
@@ -45,9 +46,10 @@ class ProcessThread(threading.Thread):
         self.out = ""
         self.process = None
         self.exception = ""
+        self.verbose = verbose
 
     def run(self):
-        LOGGER.debug("starting %s", self.cmd)
+        ui.debug("Calling:", " ".join(self.cmd))
         try:
             self.process = subprocess.Popen(self.cmd,
                 stdout=subprocess.PIPE,
@@ -59,27 +61,50 @@ class ProcessThread(threading.Thread):
             return
 
         while self.process.poll() is None:
-            self.out += self.process.stdout.readline()
+            line = self.process.stdout.readline()
+            self.out += line
+            if self.verbose:
+                sys.stdout.write(line)
+        #program is finished, does not mean we read all lines
+        #read them!
+        while True:
+            line = self.process.stdout.readline()
+            if line == "":
+                break
+            self.out += line
+            if self.verbose:
+                sys.stdout.write(line)
 
 
 class CommandFailedException(Exception):
     """Custom exception """
-    def __init__(self, cmd, returncode, cwd=None):
+    def __init__(self, cmd, returncode, cwd=None, stdout=None, stderr=None):
         self.cmd = cmd
+        self.cwd = cwd
         if cwd is None:
             self.cwd = os.getcwd()
-        else:
-            self.cwd = cwd
         self.returncode = returncode
+        self.stdout = stdout
+        if stdout is None:
+            self.stdout = ""
+        self.stderr = stderr
+        if stderr is None:
+            self.stderr = ""
 
     def __str__(self):
         mess  = """The following command failed
 {cmd}
 Return code is {returncode}
 Working dir was {cwd}
+Stdout:
+{stdout}
+Stderr:
+{stderr}
 """
-        return mess.format(cmd=self.cmd, returncode=self.returncode, cwd=self.cwd)
-
+        stdout = "\n".join(["    " + line for line in self.stdout.split("\n")])
+        stderr = "\n".join(["    " + line for line in self.stderr.split("\n")])
+        return mess.format(cmd=self.cmd, returncode=self.returncode, cwd=self.cwd,
+                           stdout=stdout, stderr=stderr)
 
 class ProcessCrashedError(Exception):
     """An other custom exception, used by call_background """
@@ -108,7 +133,7 @@ class NotInPath(Exception):
         return mess
 
 
-def find_program(executable, env=None):
+def find_program(executable, env=None, raises=False):
     """Get the full path of an executable by
     looking at PATH environment variable
     (and PATHEXT on windows)
@@ -116,23 +141,125 @@ def find_program(executable, env=None):
     :return: None if program was not found,
       the full path to executable otherwize
     """
+    if executable in _FIND_PROGRAM_CACHE:
+        return _FIND_PROGRAM_CACHE[executable]
     full_path = None
-    if env:
-        env_path = env.get("PATH", "")
-    else:
-        env_path = os.environ["PATH"]
+    res = None
+    if not env:
+        env = qibuild.config.get_build_env()
+        if not env:
+            env = os.environ
+    env_path = env.get("PATH", "")
     for path in env_path.split(os.pathsep):
         path = qibuild.sh.to_native_path(path)
         full_path = os.path.join(path, executable)
         if os.access(full_path, os.X_OK) and os.path.isfile(full_path):
-            return full_path
+            res = full_path
+            break
         pathext = os.environ.get("PATHEXT")
         if pathext:
             for ext in pathext.split(";"):
                 with_ext = full_path + ext
                 if os.access(with_ext, os.X_OK):
-                    return qibuild.sh.to_native_path(with_ext)
+                    res = qibuild.sh.to_native_path(with_ext)
+                    break
+    if res:
+        _FIND_PROGRAM_CACHE[executable] = res
+        return res
+    else:
+        if raises:
+            raise NotInPath(executable, env=env)
     return None
+
+
+## Implementation widely inspired by the python-2.7 one.
+def check_output(*popenargs, **kwargs):
+    """Run command with arguments and return its output as a byte string.
+
+    If the exit code was non-zero it raises a CommandFailedException. The
+    CommandFailedException object will have the return code in the returncode
+    attribute, output in the stdout attribute and error in the stderr
+    attribute.
+
+    The arguments are the same as for the Popen constructor.  Example:
+
+    >>> check_output(["ls", "-l", "/dev/null"])
+    'crw-rw-rw- 1 root root 1, 3 Oct 18  2007 /dev/null\n'
+
+    The stdout argument is not allowed as it is used internally.
+    To capture standard error in the result, use stderr=STDOUT.
+
+    >>> check_output(["/bin/sh", "-c",
+    ...               "ls -l non_existent_file ; exit 0"],
+    ...              stderr=STDOUT)
+    'ls: non_existent_file: No such file or directory\n'
+    """
+    cwd = kwargs.get('cwd')
+    if sys.version_info <= (2, 7):
+        if 'stdout' in kwargs:
+            raise ValueError('stdout argument not allowed, it will be overridden.')
+        process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
+        output, error = process.communicate()
+        retcode = process.poll()
+        if retcode:
+            cmd = kwargs.get("args")
+            if cmd is None:
+                cmd = popenargs[0]
+            raise CommandFailedException(cmd, retcode, cwd=cwd,
+                                         stdout=output, stderr=error)
+    else:
+        try:
+            output = subprocess.check_output(*popenargs, **kwargs)
+        except subprocess.CalledProcessError as err:
+            raise CommandFailedException(err.cmd, err.returncode,
+                                         cwd=cwd, stdout=err.output)
+    return output
+
+
+def check_output_error(*popenargs, **kwargs):
+    """Run command with arguments and return its output and error as a byte string.
+
+    If the exit code was non-zero it raises a CalledProcessError.  The
+    CalledProcessError object will have the return code in the returncode
+    attribute and error concatened at the end of output in the output attribute.
+
+    The arguments are the same as for the Popen constructor.  Examples:
+
+    >>> check_output_error(["tar", "tf", "foo.tbz2"])
+    ('./\n./usr/\n./usr/bin/\n./usr/bin/foo\n',
+     '\nbzip2: (stdin): trailing garbage after EOF ignored\n')
+
+    >>> try:
+    ...     qibuild.command.check_output_error(['tar', '--bzip2', '-tf', 'foo.tar.gz'])
+    ... except subprocess.CalledProcessError as e:
+    ...     print e
+    The following command failed
+    ['tar', '--bzip2', '-tf', 'foo.tar.gz']
+    Return code is 2
+    Working dir was /tmp
+    Stdout:
+
+    Stderr:
+        bzip2: (stdin) is not a bzip2 file.
+        tar: Child returned status 2
+        tar: Error is not recoverable: exiting now
+
+    The stdout and stderr arguments are not allowed as they are used internally.
+
+    """
+    if 'stdout' in kwargs:
+        raise ValueError('stdout argument not allowed, it will be overridden.')
+    if 'stderr' in kwargs:
+        raise ValueError('stderr argument not allowed, it will be overridden.')
+    process = subprocess.Popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, *popenargs, **kwargs)
+    output, error = process.communicate()
+    retcode = process.poll()
+    if retcode:
+        cmd = kwargs.get("args")
+        if cmd is None:
+            cmd = popenargs[0]
+        raise CommandFailedException(cmd, retcode, stdout=output, stderr=error)
+    return (output, error)
 
 
 def check_is_in_path(executable, build_env=None):
@@ -141,7 +268,7 @@ def check_is_in_path(executable, build_env=None):
         raise NotInPath(executable, env=build_env)
 
 
-def call(cmd, cwd=None, env=None, ignore_ret_code=False):
+def call(cmd, cwd=None, env=None, ignore_ret_code=False, quiet=None):
     """ Execute a command line.
 
     If ignore_ret_code is False:
@@ -162,14 +289,6 @@ def call(cmd, cwd=None, env=None, ignore_ret_code=False):
       * And a normal exception if cwd is given and is not
         an existing directory.
 
-    If sys.stdout or sys.stderr are not a tty, only write
-    the last 300 lines of the process to sys.stdout if the
-    returncode is not zero, else write everything.
-
-    Note: this trick with sys.stderr, sys.stdout and subprocess
-    does not work on windows with python < 2.7, so it is simply
-    disabled, and you have a normal behavior instead.
-
     """
     exe_full_path = find_program(cmd[0], env=env)
     if not exe_full_path:
@@ -183,11 +302,14 @@ def call(cmd, cwd=None, env=None, ignore_ret_code=False):
             raise Exception("Trying to to run %s in non-existing %s" %
                 (" ".join(cmd), cwd))
 
-    LOGGER.debug("Calling %s", " ".join(cmd))
+    ui.debug("Calling:", " ".join(cmd))
     ring_buffer = RingBuffer(300)
 
     returncode = 0
-    quiet_command = CONFIG.get("quiet", False)
+    if quiet:
+        quiet_command = quiet
+    else:
+        quiet_command = CONFIG.get("quiet", False)
     # This code won't work on windows with python < 2.7,
     # so quiet will be ignored
     if sys.platform.startswith("win") and sys.version_info < (2, 7):
@@ -286,7 +408,7 @@ class CommandLine:
                 queue.put((pipe_name, line))
             if not pipe.closed:
                 pipe.close()
-        LOGGER.debug("Starting: %s", " ".join(self.cmd))
+        ui.debug("Calling:", " ".join(self.cmd))
         process =  subprocess.Popen(
             self.cmd,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,

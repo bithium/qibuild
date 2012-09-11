@@ -10,15 +10,11 @@
 import os
 import operator
 
-HAS_LXML = False
-try:
-    from lxml import etree
-    HAS_LXML = True
-except ImportError:
-    from xml.etree import ElementTree as etree
 from StringIO import StringIO
 
 import qibuild
+import qixml
+from qixml import etree
 
 
 def get_global_cfg_path():
@@ -35,48 +31,6 @@ def indent(text, num=1):
     """
     return "\n".join(["  " * num + l for l in text.splitlines()])
 
-
-def raise_parse_error(message, cfg_path=None, tree=None):
-    """ Raise a nice parsing error about the given
-    tree element
-
-    """
-    mess = ""
-    if cfg_path:
-        mess += "Error when parsing '%s'\n" % cfg_path
-    if tree is not None:
-        as_str = etree.tostring(tree)
-        mess += "Could not parse:\t%s\n" % as_str
-    mess += message
-    raise Exception(mess)
-
-def parse_bool_attr(tree, name):
-    """ Parse a boolean attribute of an elelement
-    Return True is the attribute exists and is
-     "1" or "true".
-    Returns False if:
-        - the attribute does not exist
-        - the attribute exist and is "0" or "false"
-
-    """
-    res = tree.get(name)
-    if res is None:
-        return False
-    if res in ["true", "1"]:
-        return True
-    if res in ["false", "0"]:
-        return False
-    raise_parse_error("Expecting value in [true, false, 0, 1] "
-        "for attribute %s" % name,
-        tree=tree)
-
-def parse_list_attr(tree, name):
-    """ Parse a list attribute
-    Return an empty list if the attribute is not found
-
-    """
-    res = tree.get(name, "")
-    return res.split()
 
 
 # Using hand-written 'class to xml' stuff is not that
@@ -121,7 +75,7 @@ class IDE:
     def parse(self, tree):
         name = tree.get("name")
         if not name:
-            raise_parse_error("ide node should have a name attribute",
+            qixml.raise_parse_error("ide node should have a name attribute",
                 tree=tree)
         self.name = name
         self.path = tree.get("path")
@@ -146,9 +100,7 @@ class Build:
         self.incredibuild = False
 
     def parse(self, tree):
-        incredibuild = tree.get("incredibuild")
-        if incredibuild and incredibuild.lower() in ["y", "yes", "1", "true", "on"]:
-            self.incredibuild = True
+        self.incredibuild = qixml.parse_bool_attr(tree, "incredibuild")
 
     def tree(self):
         tree = etree.Element("build")
@@ -202,6 +154,8 @@ class Manifest:
 
 class Defaults:
     def __init__(self):
+        # An editor name to use by default
+        self.editor = None
         # An ide name to use by default
         self.ide = None
         # A cmake config to use by default (for intance, a CMake generator)
@@ -277,7 +231,7 @@ class Server:
     def parse(self, tree):
         name = tree.get("name")
         if not name:
-            raise_parse_error("server node should have a name attribute",
+            qixml.raise_parse_error("server node should have a name attribute",
                 tree=tree)
         self.name = name
         access_tree = tree.find("access")
@@ -403,7 +357,7 @@ class Config:
     def parse(self, tree):
         name = tree.get("name")
         if not name:
-            raise_parse_error("'config' node must have a 'name' attribute",
+            qixml.raise_parse_error("'config' node must have a 'name' attribute",
                 tree=tree)
         self.name = name
         self.ide = tree.get("ide")
@@ -479,12 +433,18 @@ class QiBuildConfig:
         # Active CMake config:
         self.cmake  = CMake()
 
-    def read(self, cfg_path=None):
+    def read(self, cfg_path=None, create_if_missing=False):
         """ Read from a config location
 
         """
         if not cfg_path:
             cfg_path = get_global_cfg_path()
+            if not os.path.exists(cfg_path):
+                if create_if_missing:
+                    dirname = os.path.dirname(cfg_path)
+                    qibuild.sh.mkdir(dirname, recursive=True)
+                    with open(cfg_path, "w") as fp:
+                        fp.write('<qibuild />\n')
         try:
             self.tree.parse(cfg_path)
         except Exception, e:
@@ -534,13 +494,7 @@ class QiBuildConfig:
     def write_local_config(self, local_xml_path):
         """ Dump local settings to a xml file """
         local_tree = self.local.tree()
-        tree = etree.ElementTree(element=local_tree)
-        if HAS_LXML:
-            # pylint: disable-msg=E1123
-            tree.write(local_xml_path, pretty_print=True)
-        else:
-            xml_indent(tree.getroot())
-            tree.write(local_xml_path)
+        qixml.write(local_tree, local_xml_path)
 
     def merge_configs(self):
         """ Merge various configs
@@ -652,6 +606,19 @@ class QiBuildConfig:
             return None
         return server.access
 
+    def set_server_access(self, server_name, username, password=None, root=None):
+        """ Configure access to a server """
+        server = self.servers.get(server_name)
+        if not server:
+            server = Server()
+            server.name = server_name
+            self.servers[server_name] = server
+        access = self.servers[server_name].access
+        access.name = server_name
+        access.username = username
+        access.password = password
+        access.root = root
+
     def write(self, xml_path=None):
         """ Write back the new config
 
@@ -684,13 +651,7 @@ class QiBuildConfig:
             server_tree = server.tree()
             qibuild_tree.append(server_tree)
 
-        tree = etree.ElementTree(element=qibuild_tree)
-        if HAS_LXML:
-            # pylint: disable-msg=E1123
-            tree.write(xml_path, pretty_print=True)
-        else:
-            xml_indent(tree.getroot())
-            tree.write(xml_path)
+        qixml.write(qibuild_tree, xml_path)
 
     def __str__(self):
         res = ""
@@ -755,20 +716,20 @@ class ProjectConfig:
         # Read name
         root = self.tree.getroot()
         if root.tag != "project":
-            raise_parse_error("Root node must be 'project'",
-                cfg_path=cfg_path)
+            qixml.raise_parse_error("Root node must be 'project'",
+                xml_path=cfg_path)
         name = root.get("name")
         if not name:
-            raise_parse_error("'project' node must have a 'name' attribute",
-                cfg_path=cfg_path)
+            qixml.raise_parse_error("'project' node must have a 'name' attribute",
+                xml_path=cfg_path)
         self.name = name
 
         # Read depends:
         depends_trees = self.tree.findall("depends")
         for depends_tree in depends_trees:
-            buildtime = parse_bool_attr(depends_tree, "buildtime")
-            runtime   = parse_bool_attr(depends_tree, "runtime")
-            dep_names = parse_list_attr(depends_tree, "names")
+            buildtime = qixml.parse_bool_attr(depends_tree, "buildtime")
+            runtime   = qixml.parse_bool_attr(depends_tree, "runtime")
+            dep_names = qixml.parse_list_attr(depends_tree, "names")
             if buildtime:
                 for dep_name in dep_names:
                     self.depends.add(dep_name)
@@ -814,12 +775,7 @@ class ProjectConfig:
             build_tree.set("names", " ".join(build_only))
             project_tree.append(build_tree)
 
-        if HAS_LXML:
-            # pylint: disable-msg=E1123
-            self.tree.write(location, pretty_print=True)
-        else:
-            xml_indent(project_tree)
-            self.tree.write(location)
+        qixml.write(self.tree, location)
 
     def __str__(self):
         res = ""
@@ -837,24 +793,6 @@ class ProjectConfig:
                 res += "\n"
         return res
 
-def xml_indent(elem, level=0):
-    """ Poor man's pretty print for elementTree
-
-    """
-    # Taken from http://infix.se/2007/02/06/gentlemen-indent-your-xml
-    i = "\n" + level*"  "
-    if len(elem):
-        if not elem.text or not elem.text.strip():
-            elem.text = i + "  "
-        for e in elem:
-            xml_indent(e, level+1)
-            if not e.tail or not e.tail.strip():
-                e.tail = i + "  "
-        if not e.tail or not e.tail.strip():
-            e.tail = i
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i
 
 def convert_qibuild_cfg(qibuild_cfg):
     """ Convert an old qibuild.cfg file
@@ -900,7 +838,7 @@ def convert_qibuild_cfg(qibuild_cfg):
         qibuild_cfg.local.build.sdk_dir = sdk_dir
     incredibuild_str = ini_cfg.get("general.build.incredibuild", default="")
     if incredibuild_str.lower() in ["y", "yes", "1", "true", "on"]:
-            qibuild_cfg.build.incredibuild = True
+        qibuild_cfg.build.incredibuild = True
 
     manifest_url = ini_cfg.get("manifest.url")
     if manifest_url:
@@ -960,8 +898,8 @@ def convert_project_manifest(qibuild_manifest):
     ini_cfg.read(qibuild_manifest)
     p_names = ini_cfg.get("project", default=dict()).keys()
     if len(p_names) != 1:
-        raise_parse_error("File should countain exactly one [project] section",
-            cfg_path=qibuild_manifest)
+        qixml.raise_parse_error("File should countain exactly one [project] section",
+            xml_path=qibuild_manifest)
     name = p_names[0]
     project = ProjectConfig()
     project.name = name
@@ -980,7 +918,7 @@ def get_build_env():
 
     """
     qibuild_cfg = QiBuildConfig()
-    qibuild_cfg.read()
+    qibuild_cfg.read(create_if_missing=True)
     envsetter = qibuild.envsetter.EnvSetter()
     envsetter.read_config(qibuild_cfg)
     return envsetter.get_build_env()

@@ -17,7 +17,6 @@ CONFIG_PATH = "~/.config/qi/"
 CACHE_PATH  = "~/.cache/qi"
 SHARE_PATH  = "~/.local/share/qi/"
 
-
 def get_default_packages_path(tc_name):
     """ Get a default path to store extracted packages
 
@@ -86,13 +85,21 @@ def get_tc_config_path():
 
 class Package():
     """ A package simply has a name and a path.
-    It may also be associated to a toolchain file, relative to its path
+    It may also be associated to a toolchain file, relative to its path,
+    or a sysroot, also relative to its path
 
     """
-    def __init__(self, name, path, toolchain_file=None):
+    def __init__(self, name, path, toolchain_file=None, sysroot=None, cross_gdb=None):
         self.name = name
         self.path = path
         self.toolchain_file = toolchain_file
+        self.sysroot = None
+        self.cross_gdb = None
+        if sysroot:
+            self.sysroot = os.path.join(self.path, sysroot)
+        if cross_gdb:
+            self.cross_gdb = os.path.join(self.path, cross_gdb)
+
         # Quick hack for now
         self.depends = list()
 
@@ -100,6 +107,10 @@ class Package():
         res = "<Package %s in %s"  % (self.name, self.path)
         if self.toolchain_file:
             res += " (using toolchain from %s)" % self.toolchain_file
+        if self.sysroot:
+            res += "  (sysroot: %s)" % self.sysroot
+        if self.cross_gdb:
+            res += "  (cross-gdb: %s)" % self.cross_gdb
         res += ">"
         return res
 
@@ -108,6 +119,10 @@ class Package():
         res += "\n  in %s" % self.path
         if self.toolchain_file:
             res += "\n  using %s toolchain file" % self.toolchain_file
+        if self.sysroot:
+            res += "\n  sysroot: " + self.sysroot
+        if self.cross_gdb:
+            res += "\n  cross-gdb: " + self.cross_gdb
         return res
 
     def __eq__(self, other):
@@ -181,7 +196,7 @@ class Toolchain:
             res += "\n"
         return res
 
-    def remove(self):
+    def remove(self, force_remove=False):
         """ Remove a toolchain
 
         Clean cache, remove all packages, remove self from configurations
@@ -197,7 +212,19 @@ class Toolchain:
 
         cfg_path = self._get_config_path()
         qibuild.sh.rm(cfg_path)
-
+        if force_remove:
+            # With the current design and implementation of qitoolchain, all
+            # packages are stored in the following 'tc_path'.
+            #
+            # This is due to the fact that 'qitoolchain add-package' currently
+            # only accept tarballs as input which is extracted under:
+            # <tc_path>/<package-name>
+            #
+            # So, recursively removing 'tc_path' is currently enough to
+            # ensure that the whole toolchain, including locally added packages,
+            # is removed.
+            tc_path = qitoolchain.toolchain.get_default_packages_path(self.name)
+            qibuild.sh.rm(tc_path)
 
     def _get_config_path(self):
         """ Returns path to self configuration file
@@ -247,8 +274,10 @@ class Toolchain:
                     mess += "(from '%s')\n" % config_path
                     mess += "Package %s has no 'path' setting" % package_name
                     raise Exception(mess)
-                package_tc_file = package_conf.get('toolchain_file')
-                package = Package(package_name, package_path, package_tc_file)
+                package = Package(package_name, package_path,
+                                  toolchain_file=package_conf.get('toolchain_file'),
+                                  sysroot=package_conf.get('sysroot'),
+                                  cross_gdb=package_conf.get('cross_gdb'))
                 self.packages.append(package)
 
         self.update_toolchain_file()
@@ -267,6 +296,16 @@ class Toolchain:
             'package "%s"' % package.name,
             "toolchain_file",
             package.toolchain_file)
+        if package.sysroot:
+            qibuild.configstore.update_config(config_path,
+            'package "%s"' % package.name,
+            "sysroot",
+            package.sysroot)
+        if package.cross_gdb:
+            qibuild.configstore.update_config(config_path,
+            'package "%s"' % package.name,
+            "cross_gdb",
+            package.cross_gdb)
         self.load_config()
 
     def remove_package(self, name):
@@ -339,18 +378,41 @@ class Toolchain:
         with open(config_path, "w") as fp:
             config.write(fp)
 
-    def get(self, package_name):
+    def get(self, package_name, raises=True):
         """ Get the path to a package
 
         """
         package_names = [p.name for p in self.packages]
         if package_name not in package_names:
-            mess  = "Could not get %s from toolchain %s\n" % (package_name, self.name)
-            mess += "No such package"
-            raise Exception(mess)
+            if raises:
+                mess  = "Could not get %s from toolchain %s\n" % (package_name, self.name)
+                mess += "No such package"
+                raise Exception(mess)
+            else:
+                return None
         package = [p for p in self.packages if p.name == package_name][0]
         package_path = package.path
         return package_path
+
+    def get_sysroot(self):
+        """ Get the sysroot of the toolchain.
+        Assume that one and exactly one of the packages inside
+        the toolchain has a 'sysroot' attribute
+
+        """
+        for package in self.packages:
+            if package.sysroot:
+                return package.sysroot
+
+    def get_cross_gdb(self):
+        """ Get the cross-gdb path from the toolchain.
+        Assume that one and exactly one of the packages inside
+        the toolchain has a 'cross_gdb' attribute
+
+        """
+        for package in self.packages:
+            if package.cross_gdb:
+                return package.cross_gdb
 
     def install_package(self, package_name, destdir, runtime=False):
         """ Install a package to a destdir.
@@ -366,4 +428,3 @@ class Toolchain:
                 filter_fun=qibuild.sh.is_runtime)
         else:
             qibuild.sh.install(package_path, destdir)
-

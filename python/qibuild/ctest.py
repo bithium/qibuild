@@ -14,11 +14,10 @@ import datetime
 import errno
 import signal
 import shlex
-import logging
 
 import qibuild
+from qibuild import ui
 
-LOGGER = logging.getLogger(__name__)
 
 def _str_from_signal(code):
     """ Returns a nice string describing the signal
@@ -45,8 +44,32 @@ class TestResult:
         # Short description of what went wrong
         self.message = ""
 
+def parse_valgrind(valgrind_log, tst):
+    """
+    parse valgrind logs and extract interesting errors.
+    """
+    leak_fd_regex      = re.compile("==\d+== FILE DESCRIPTORS: (\d+)")
+    invalid_read_regex = re.compile("==\d+== Invalid read of size (\d+)")
+    with open(valgrind_log, "r") as f:
+        lines = f.readlines()
 
-def run_test(build_dir, test_name, cmd, properties, build_env):
+    for l in lines:
+        tst.out += l
+        r = leak_fd_regex.search(l)
+        if r:
+            fdopen = int(r.group(1))
+            # 4: in/out/err + valgrind_log
+            if fdopen > 4:
+                tst.ok = False
+                tst.message += "Error file descriptors leaks:" + str(fdopen - 4) + "\n"
+            continue
+        r = invalid_read_regex.search(l)
+        if r:
+            tst.ok = False
+            tst.message += "Invalid read " + r.group(1) + "\n"
+
+
+def run_test(build_dir, test_name, cmd, properties, build_env, verbose=False, valgrind=False, nightmare=False):
     """ Run a test.
 
     :return: (res, output) where res is a string describing wether
@@ -66,11 +89,24 @@ def run_test(build_dir, test_name, cmd, properties, build_env):
         for key_value in cmake_env:
             key, value = key_value.split("=")
             env[key] = value
-    process_thread = qibuild.command.ProcessThread(cmd,
+    working_dir = properties.get("WORKING_DIRECTORY")
+    if working_dir:
+        cwd = working_dir
+    else:
+        cwd = build_dir
+    ncmd = cmd
+    if valgrind:
+        env['VALGRIND'] = '1'
+        valgrind_log = os.path.join(build_dir, test_name + "valgrind_output.log")
+        ncmd = [ "valgrind", "--track-fds=yes", "--log-file=%s" % valgrind_log ]
+        ncmd.extend(cmd)
+    process_thread = qibuild.command.ProcessThread(ncmd,
         name=test_name,
-        cwd=build_dir,
-        env=env)
-
+        cwd=cwd,
+        env=env,
+        verbose=verbose)
+    if nightmare:
+        ncmd.extend(["--gtest_shuffle", "--gtest_repeat=20"])
     res = TestResult(test_name)
     start = datetime.datetime.now()
     process_thread.start()
@@ -84,7 +120,7 @@ def run_test(build_dir, test_name, cmd, properties, build_env):
         exception = process_thread.exception
         mess  = "Could not run test: %s\n" % test_name
         mess += "Error was: %s\n" % exception
-        mess += "Full command was: %s\n" % " ".join(cmd)
+        mess += "Full command was: %s\n" % " ".join(ncmd)
         if isinstance(exception, OSError):
             # pylint: disable-msg=E1101
             if exception.errno == errno.ENOENT:
@@ -94,53 +130,64 @@ def run_test(build_dir, test_name, cmd, properties, build_env):
     if process_thread.isAlive():
         process.terminate()
         res.ok = False
-        res.message =  "Timed out (%i s)" % timeout
+        res.message =  "Timed out (%is)" % timeout
     else:
         retcode = process.returncode
         if retcode == 0:
             res.ok = True
         else:
             res.ok = False
+            try:
+                process.kill()
+            except:
+                pass
             if retcode > 0:
                 res.message = "Return code: %i" % retcode
             else:
                 res.message = _str_from_signal(-retcode)
+    if valgrind:
+        parse_valgrind(valgrind_log, res)
     return res
 
 
-def run_tests(project, build_env, test_name=None):
+def run_tests(project, build_env, pattern=None, verbose=False, slow=False,
+              dry_run=False, valgrind=False, nightmare=False, test_args=None):
     """ Called by :py:meth:`qibuild.toc.Toc.test_project`
 
     :param test_name: If given, only run this test
 
-    Always write some XML files in build-test/results
+    Always write some XML files in build-<config>/test-results
     (even if they were no tests to run at all)
 
-    :return: (ok, summary) where ok is True if all
-             test passed, and summary is a nice summary
-             of what happened::
-
-                ran 10 tests, 2 failures:
-                    * test_foo
-                    * test_bar
+    :return: a boolean to indicate if test was sucessful
 
     """
     build_dir = project.build_directory
-    results_dir = os.path.join(project.directory, "build-tests",
-        "results")
+    results_dir = os.path.join(project.build_directory, "test-results")
 
     all_tests = parse_ctest_test_files(build_dir)
     tests = list()
-    if test_name:
-        tests = [x for x in all_tests if x[0] == test_name]
+    slow_tests = list()
+    if pattern:
+        tests = [x for x in all_tests if re.search(pattern, x[0])]
         if not tests:
-            mess  = "No such test: %s\n" % test_name
+            mess  = "No tests matching %s\n" % pattern
             mess += "Known tests are:\n"
             for x in all_tests:
                 mess += "  * " + x[0] + "\n"
             raise Exception(mess)
     else:
-        tests = all_tests[:]
+        for test in all_tests:
+            if test_args is not None:
+              test[1] += test_args.split()
+            (name, cmd_, properties) = test
+            cost = properties.get("COST")
+            if not slow and cost and float(cost) > 50:
+                ui.debug("Skipping test", name, "because cost",
+                         "(%s)"% cost, "is greater than 50")
+                slow_tests.append(name)
+                continue
+            tests.append(test)
 
     if not tests:
         # Create a fake test result to keep CI jobs happy:
@@ -148,28 +195,53 @@ def run_tests(project, build_env, test_name=None):
         fake_test_res.ok = True
         xml_out = os.path.join(results_dir, "compilation.xml")
         write_xml(xml_out, fake_test_res)
+        ui.warning("No tests found for project", project.name)
+        return
+
+    if dry_run:
+        ui.info(ui.green, "List of tests for", project.name)
+        for (test_name, _, _) in tests:
+            ui.info(ui.green, " * ", ui.reset, test_name)
+        return
+
+    ui.info(ui.green, "Testing", project.name, "...")
     ok = True
     fail_tests = list()
     for (i, test) in enumerate(tests):
         (test_name, cmd, properties) = test
-        sys.stdout.write("Running %i/%i %s ... " % (i+1, len(tests), test_name))
+        ui.info(ui.green, " * ", ui.reset, ui.bold,
+                "(%2i/%2i)" % (i+1, len(tests)),
+                ui.blue, test_name.ljust(25), end="")
+        if verbose:
+            print
         sys.stdout.flush()
-        test_res = run_test(build_dir, test_name, cmd, properties, build_env)
+        test_res = run_test(build_dir, test_name, cmd, properties, build_env,
+                            valgrind=valgrind, verbose=verbose, nightmare=nightmare)
         if test_res.ok:
-            sys.stdout.write("[OK]\n")
+            ui.info(ui.green, "[OK]")
         else:
             ok = False
-            sys.stdout.write("[FAIL]\n")
-            print test_res.out
+            ui.info(ui.red, "[FAIL]", test_res.message)
+            if not verbose:
+                print test_res.out
             fail_tests.append(test_name)
         xml_out = os.path.join(results_dir, test_name + ".xml")
         if not os.path.exists(xml_out):
             write_xml(xml_out, test_res)
-    summary  = "Ran %i tests, %i failures\n" % (len(tests), len(fail_tests))
-    for fail_test in fail_tests:
-        summary += "  * %s\n" % fail_test
 
-    return (ok, summary)
+    if ok:
+        ui.info("Ran %i tests" % len(tests))
+        if slow_tests and not slow:
+            ui.info("Note: %i" % len(slow_tests),
+                    "slow tests did not run, use --slow to run them")
+        ui.info("All pass. Congrats!")
+        return True
+
+    ui.error("Ran %i tests, %i failures" %
+                  (len(tests), len(fail_tests)))
+    for fail_test in fail_tests:
+        ui.info(ui.bold, " -", ui.blue, fail_test)
+    return False
 
 
 def write_xml(xml_out, test_res):

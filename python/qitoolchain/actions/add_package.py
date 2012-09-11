@@ -3,16 +3,13 @@
 ## found in the COPYING file.
 
 """Add a new package to a toolchain
+
 """
 
 import os
-import logging
 
 import qibuild
 import qitoolchain
-
-LOGGER = logging.getLogger(__name__)
-
 
 def configure_parser(parser):
     """Configure parser for this action """
@@ -32,7 +29,8 @@ def do(args):
     """
     package_name = args.package_name
     package_path = args.package_path
-    tc = qitoolchain.get_toolchain(args)
+    tc_name = qitoolchain.toolchain_name_from_args(args)
+    tc = qitoolchain.get_toolchain(tc_name)
     # extract it to the default packages path of the toolchain
     tc_packages_path = qitoolchain.toolchain.get_default_packages_path(tc.name)
     dest = os.path.join(tc_packages_path, package_name)

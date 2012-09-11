@@ -82,7 +82,7 @@ if(NOT WITH_DOCS)
 endif()
 
 # Generate man pages and documentation with sphinx:
-find_program(_sphinx_build sphinx-build2 sphinx-build)
+find_program(_sphinx_build NAMES sphinx-build2 sphinx-build)
 if(NOT _sphinx_build)
   message(STATUS "Please install python-sphinx to generate "
   "documentation and man pages"
@@ -98,6 +98,7 @@ else()
     DIRECTORY    ${CMAKE_BINARY_DIR}/man1
     DESTINATION  ${CMAKE_INSTALL_PREFIX}/share/man/
     PATTERN      ".doctrees" EXCLUDE
+    PATTERN      "_sources" EXCLUDE
   )
 endif()
 
@@ -118,5 +119,6 @@ if(_sphinx_build)
     DIRECTORY ${CMAKE_BINARY_DIR}/doc/html
     DESTINATION ${CMAKE_INSTALL_PREFIX}/share/qibuild/doc
     PATTERN      ".doctrees" EXCLUDE
+    PATTERN      "_sources" EXCLUDE
   )
 endif()

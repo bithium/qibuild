@@ -8,16 +8,14 @@ Toolchain packages and known configurations will be fetched from an URL.
 
 """
 
-import logging
-
+from qibuild import ui
 import qibuild
 import qitoolchain
 
-LOGGER = logging.getLogger(__name__)
 
 def configure_parser(parser):
     """ Configure parser for this action """
-    qibuild.parsers.work_tree_parser(parser)
+    qibuild.parsers.worktree_parser(parser)
     parser.add_argument("name", metavar="NAME",
         help="Name of the toolchain")
     parser.add_argument("feed", metavar="TOOLCHAIN_FEED",
@@ -56,7 +54,7 @@ def do(args):
 
     if args.default:
         try:
-            toc = qibuild.toc.toc_open(args.work_tree)
+            toc = qibuild.toc.toc_open(args.worktree)
         except qibuild.toc.TocException, e:
             mess = "You need to be in a valid toc worktree to use --default\n"
             mess += "Exception was:\n"
@@ -64,23 +62,21 @@ def do(args):
             raise Exception(mess)
 
     if tc_name in qitoolchain.get_tc_names():
-        LOGGER.info("%s already exists, removing previous "
-                    "toolchain and creating a new one", tc_name)
+        ui.warning(tc_name, "already exists,",
+                   "removing previous toolchain and creating a new one")
         toolchain = qitoolchain.Toolchain(tc_name)
         toolchain.remove()
 
     toolchain = qitoolchain.Toolchain(tc_name)
     if feed:
+        ui.info(ui.green, "Updating toolchain", tc_name, "with feed:", feed)
         toolchain.parse_feed(feed, dry_run=dry_run)
 
     if args.default:
         toc.config.set_default_config(tc_name)
         toc.save_config()
-        LOGGER.info("Now using toolchain %s by default", tc_name)
+        ui.info("Now using toolchain", ui.blue, tc_name, ui.reset, "by default")
     else:
-        mess = """Now try using:
-    qibuild configure -c {tc_name}
-    qibuild make      -c {tc_name}
-"""
-        mess = mess.format(tc_name=tc_name)
-        LOGGER.info(mess)
+        ui.info(ui.green, "Now try using", "\n"
+                "  qibuild configure -c", ui.blue, tc_name, ui.green, "\n"
+                "  qibuild make -c",      ui.blue, tc_name)

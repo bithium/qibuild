@@ -1,5 +1,3 @@
-
-
 .. toctree::
   :hidden:
 
@@ -11,8 +9,7 @@
   design/index
   other_build_frameworks
   relnotes
-  changelog
-  news/1.12.1
+  news/index
 
 
 .. _qibuild-documentation:
@@ -45,6 +42,7 @@ qiBuild is composed of two parts:
 * the qibuild/qitoolchain command line tools, that helps build projects while
   taking dependencies into account and generate re-distributable binary
   packages
+
 
 Getting started with qiBuild
 ----------------------------
@@ -137,6 +135,9 @@ updates concerning your changes.
 
    contrib/writing_documentation
 
+If you are using qibuild from the git repository,
+have a look at the :ref:`qibuild-cooking` section
+first.
 
 
 qiBuild design

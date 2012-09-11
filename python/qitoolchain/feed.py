@@ -8,15 +8,14 @@
 
 import os
 import sys
-import logging
 import hashlib
 import urlparse
 from xml.etree import ElementTree
 
+from qibuild import ui
 import qibuild
 import qitoolchain
 
-LOGGER = logging.getLogger(__name__)
 
 
 def raise_parse_error(package_tree, feed, message):
@@ -45,9 +44,8 @@ def tree_from_feed(feed_location):
             fp = qitoolchain.remote.open_remote_location(feed_location)
         tree = ElementTree.ElementTree()
         tree.parse(fp)
-    except Exception, e:
-        mess  = "Could not parse %s\n" % feed_location
-        LOGGER.error(mess)
+    except Exception:
+        ui.error("Could not parser", feed_location)
         raise
     finally:
         if fp:
@@ -75,6 +73,8 @@ def handle_package(package, package_tree, toolchain):
         handle_local_package(package, package_tree)
     if package_tree.get("toolchain_file"):
         handle_toochain_file(package, package_tree)
+    package.cross_gdb = package_tree.get("cross_gdb")
+    package.sysroot = package_tree.get("sysroot")
     cmake_generator = package_tree.get("cmake_generator")
     if cmake_generator:
         toolchain.cmake_generator = cmake_generator
@@ -97,23 +97,24 @@ def handle_remote_package(feed, package, package_tree, toolchain):
     archive_name = hashlib.sha1(package_url).hexdigest()
     top = archive_name[:2]
     rest = archive_name[2:]
-    if package_url.endswith(".tar.gz"):
-        rest += ".tar.gz"
-    if package_url.endswith(".zip"):
-        rest += ".zip"
+    extension = package_url.rsplit(".", 1)[1]
+    if package_url.endswith(".tar." + extension):
+        rest += ".tar"
+    rest += "." + extension
     output = toolchain.cache
     output = os.path.join(output, top)
-    message = "Getting package %s from %s" % (package_name, package_url)
+    message = (ui.green, "Downloading", ui.blue, package_url)
     package_archive = qitoolchain.remote.download(package_url,
         output,
         output_name=rest,
         clobber=False,
         message=message)
 
-    LOGGER.info("Toolchain %s: adding package %s", toolchain.name, package.name)
+    ui.info(ui.green, "Adding package", ui.blue, package.name)
     packages_path = qitoolchain.toolchain.get_default_packages_path(toolchain.name)
     should_skip = False
     dest = os.path.join(packages_path, package_name)
+    dest = os.path.abspath(dest)
     if not os.path.exists(dest):
         should_skip = False
     else:
@@ -125,7 +126,16 @@ def handle_remote_package(feed, package, package_tree, toolchain):
         if os.path.exists(dest):
             qibuild.sh.rm(dest)
         try:
-            extracted = qibuild.archive.extract(package_archive, packages_path, topdir=package_name)
+            algo = qibuild.archive.guess_algo(package_archive)
+            extract_path = qibuild.archive.extract(package_archive, packages_path, algo=algo)
+            extract_path = os.path.abspath(extract_path)
+            if extract_path != dest:
+                src = extract_path
+                dst = dest
+                qibuild.sh.mkdir(dst, recursive=True)
+                qibuild.sh.rm(dst)
+                qibuild.sh.mv(src, dst)
+                qibuild.sh.rm(src)
         except qibuild.archive.InvalidArchive, err:
             mess = str(err)
             mess += "\nPlease fix the archive and try again"
@@ -168,7 +178,13 @@ class ToolchainFeedParser:
         self.packages = list()
         # A dict name -> version used to only keep the latest
         # version
+        self.blacklist = list()
         self._versions = dict()
+
+    def get_packages(self):
+        """ Get the parsed packages """
+        res = [x for x in self.packages if not x.get("name") in self.blacklist]
+        return res
 
     def append_package(self, package_tree):
         """ Add a package to self.packages.
@@ -212,6 +228,13 @@ class ToolchainFeedParser:
                 if not "://" in feed_url:
                     feed_url = urlparse.urljoin(feed, feed_url)
                 self.parse(feed_url)
+        select_tree = tree.find("select")
+        if select_tree is not None:
+            blacklist_trees = select_tree.findall("blacklist")
+            for blacklist_tree in blacklist_trees:
+                name = blacklist_tree.get("name")
+                if name:
+                    self.blacklist.append(name)
 
 
 def parse_feed(toolchain, feed, qibuild_cfg, dry_run=False):
@@ -224,7 +247,7 @@ def parse_feed(toolchain, feed, qibuild_cfg, dry_run=False):
         toolchain.remove_package(package_name)
     parser = ToolchainFeedParser()
     parser.parse(feed)
-    package_trees = parser.packages
+    package_trees = parser.get_packages()
     errors = list()
     for package_tree in package_trees:
         package = qitoolchain.Package(None, None)
@@ -252,7 +275,7 @@ def parse_feed(toolchain, feed, qibuild_cfg, dry_run=False):
             mess  = "could guess package path from this configuration:\n"
             mess += ElementTree.tostring(package_tree)
             mess += "Please make sure you have at least an url or a directory\n"
-            LOGGER.warning(mess)
+            ui.warning(mess)
             continue
         if not dry_run:
             toolchain.add_package(package)

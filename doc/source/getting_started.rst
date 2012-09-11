@@ -14,16 +14,16 @@ Python 2.7 is the preferred version, but qiBuild should work fine on python
 CMake version 2.8.3 is the preferred version, but you should not have any
 problem with CMake 2.6. On Windows, choose to add CMake to your ``%PATH%.``
 
-On windows, to use scripts written in Python, you have to put ``C:\Python2.x`` and
-``c:\Python2.x\Scripts`` in your ``PATH``.
+On windows, to use scripts written in Python, you have to put ``C:\Python2x`` and
+``c:\Python2x\Scripts`` in your ``PATH``.
 
 Installation
 ------------
 
 Get the source code from github: https://github.com/aldebaran/qibuild
 
-Linux, mac
-++++++++++
+Linux
++++++
 
 Simply run:
 
@@ -33,16 +33,62 @@ Simply run:
 
 And make sure ``~/.local/bin`` is in your ``PATH``
 
-On mac, make sure ``cmake`` is in your path.
+Also install ``CMake`` and the various tools for compiling
+
+.. code-block:: console
+
+  # On ubuntu
+  $ sudo apt-get install cmake build-essential
+
+Mac
++++
+
+On Mac, install ``CMake`` from CMake website:
+http://www.cmake.org/cmake/resources/software.html
+
+During CMake installation, you will be asked to choose a
+path to install command line links:
+
+.. image:: /pics/cmake-install-command-links.png
+
+Just choose the default path.
+
+(qibuild cannot work without CMake installed this way)
+
+Then install XCode.
+
+Starting with XCode4, the command line compile tools
+(gcc, make, and so on), are not installed by default and CMake cannot
+work without them.
+
+Go to Preferences/Downloads/Components and install
+the command line tools form here:
+
+.. image:: /pics/install-command-line-tools.png
+
+
+Note that if you are in a distribution where Python3 is the default,
+you should use
+
+.. code-block:: console
+
+   PYTHON=python2 ./install-qibuild.sh
+
+instead
 
 Windows
 +++++++
 
-Just run ``install-qibuild.bat``:
+Make sure ``python.exe`` is in your PATH first.
+
+Then run ``install-qibuild.bat``:
 
 .. code-block:: console
 
   c:\path\to\qibuild> install-qibuild.bat
+
+Then make sure the ``Scripts`` directory next to
+your Python installation is in your PATH too.
 
 If you have bash available on your system, and want to use qiBuild from there,
 you should also be able to use the .sh script. (Be careful if you are using

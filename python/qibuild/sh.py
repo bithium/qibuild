@@ -15,10 +15,10 @@ import errno
 import stat
 import shutil
 import tempfile
-import logging
+import qibuild.log
 import subprocess
 
-LOGGER = logging.getLogger("buildtool.sh")
+LOGGER = qibuild.log.get_logger("buildtool.sh")
 
 def mkdir(dest_dir, recursive=False):
     """ Recursive mkdir (do not fail if file exists) """
@@ -232,80 +232,80 @@ def rm(name):
 
 # Taken from gclient source code (BSD license)
 def rmtree(path):
-  """shutil.rmtree() on steroids.
+    """shutil.rmtree() on steroids.
 
-  Recursively removes a directory, even if it's marked read-only.
+    Recursively removes a directory, even if it's marked read-only.
 
-  shutil.rmtree() doesn't work on Windows if any of the files or directories
-  are read-only, which svn repositories and some .svn files are.  We need to
-  be able to force the files to be writable (i.e., deletable) as we traverse
-  the tree.
+    shutil.rmtree() doesn't work on Windows if any of the files or directories
+    are read-only, which svn repositories and some .svn files are.  We need to
+    be able to force the files to be writable (i.e., deletable) as we traverse
+    the tree.
 
-  Even with all this, Windows still sometimes fails to delete a file, citing
-  a permission error (maybe something to do with antivirus scans or disk
-  indexing).  The best suggestion any of the user forums had was to wait a
-  bit and try again, so we do that too.  It's hand-waving, but sometimes it
-  works. :/
+    Even with all this, Windows still sometimes fails to delete a file, citing
+    a permission error (maybe something to do with antivirus scans or disk
+    indexing).  The best suggestion any of the user forums had was to wait a
+    bit and try again, so we do that too.  It's hand-waving, but sometimes it
+    works. :/
 
-  On POSIX systems, things are a little bit simpler.  The modes of the files
-  to be deleted doesn't matter, only the modes of the directories containing
-  them are significant.  As the directory tree is traversed, each directory
-  has its mode set appropriately before descending into it.  This should
-  result in the entire tree being removed, with the possible exception of
-  ``path`` itself, because nothing attempts to change the mode of its parent.
-  Doing so would be hazardous, as it's not a directory slated for removal.
-  In the ordinary case, this is not a problem: for our purposes, the user
-  will never lack write permission on ``path``'s parent.
-  """
-  if not os.path.exists(path):
-    return
+    On POSIX systems, things are a little bit simpler.  The modes of the files
+    to be deleted doesn't matter, only the modes of the directories containing
+    them are significant.  As the directory tree is traversed, each directory
+    has its mode set appropriately before descending into it.  This should
+    result in the entire tree being removed, with the possible exception of
+    ``path`` itself, because nothing attempts to change the mode of its parent.
+    Doing so would be hazardous, as it's not a directory slated for removal.
+    In the ordinary case, this is not a problem: for our purposes, the user
+    will never lack write permission on ``path``'s parent.
+    """
+    if not os.path.exists(path):
+        return
 
-  if os.path.islink(path) or not os.path.isdir(path):
-    raise Exception('Called rmtree(%s) in non-directory' % path)
+    if os.path.islink(path) or not os.path.isdir(path):
+        raise Exception('Called rmtree(%s) in non-directory' % path)
 
-  if sys.platform == 'win32':
-    # Some people don't have the APIs installed. In that case we'll do without.
-    win32api = None
-    win32con = None
-    try:
-      # Unable to import 'XX'
-      # pylint: disable=F0401
-      import win32api, win32con
-    except ImportError:
-      pass
-  else:
-    # On POSIX systems, we need the x-bit set on the directory to access it,
-    # the r-bit to see its contents, and the w-bit to remove files from it.
-    # The actual modes of the files within the directory is irrelevant.
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-
-  def remove(func, subpath):
     if sys.platform == 'win32':
-      os.chmod(subpath, stat.S_IWRITE)
-      if win32api and win32con:
-        win32api.SetFileAttributes(subpath, win32con.FILE_ATTRIBUTE_NORMAL)
-    try:
-      func(subpath)
-    except OSError, e:
-      if e.errno != errno.EACCES or sys.platform != 'win32':
-        raise
-      # Failed to delete, try again after a 100ms sleep.
-      time.sleep(0.1)
-      func(subpath)
-
-  for fn in os.listdir(path):
-    # If fullpath is a symbolic link that points to a directory, isdir will
-    # be True, but we don't want to descend into that as a directory, we just
-    # want to remove the link.  Check islink and treat links as ordinary files
-    # would be treated regardless of what they reference.
-    fullpath = os.path.join(path, fn)
-    if os.path.islink(fullpath) or not os.path.isdir(fullpath):
-      remove(os.remove, fullpath)
+        # Some people don't have the APIs installed. In that case we'll do without.
+        win32api = None
+        win32con = None
+        try:
+            # Unable to import 'XX'
+            # pylint: disable=F0401
+            import win32api, win32con
+        except ImportError:
+            pass
     else:
-      # Recurse.
-      rm(fullpath)
+        # On POSIX systems, we need the x-bit set on the directory to access it,
+        # the r-bit to see its contents, and the w-bit to remove files from it.
+        # The actual modes of the files within the directory is irrelevant.
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-  remove(os.rmdir, path)
+    def remove(func, subpath):
+        if sys.platform == 'win32':
+            os.chmod(subpath, stat.S_IWRITE)
+            if win32api and win32con:
+                win32api.SetFileAttributes(subpath, win32con.FILE_ATTRIBUTE_NORMAL)
+        try:
+            func(subpath)
+        except OSError, e:
+            if e.errno != errno.EACCES or sys.platform != 'win32':
+                raise
+            # Failed to delete, try again after a 100ms sleep.
+            time.sleep(0.1)
+            func(subpath)
+
+    for fn in os.listdir(path):
+        # If fullpath is a symbolic link that points to a directory, isdir will
+        # be True, but we don't want to descend into that as a directory, we just
+        # want to remove the link.  Check islink and treat links as ordinary files
+        # would be treated regardless of what they reference.
+        fullpath = os.path.join(path, fn)
+        if os.path.islink(fullpath) or not os.path.isdir(fullpath):
+            remove(os.remove, fullpath)
+        else:
+            # Recurse.
+            rmtree(fullpath)
+
+    remove(os.rmdir, path)
 
 def mv(src, dest):
     """Move a file into a directory, but do not crash
@@ -392,20 +392,20 @@ def run(program, args):
 
     os.execvp(program, real_args)
 
-def to_posix_path(path):
+def to_posix_path(path, fix_drive=False):
     """
     Returns a POSIX path from a DOS path
-
-    Useful because cmake *needs* POSIX paths.
-
-    Guidelines:
-        * always use os.path insternally
-        * convert to POSIX path at the very last moment
+    :param fix_drive: if True, will replace c: by /c/
+    (ala mingw)
 
     """
     res = os.path.expanduser(path)
     res = os.path.abspath(res)
     res = path.replace("\\", "/")
+    if fix_drive:
+        (drive, rest) = os.path.splitdrive(res)
+        letter = drive[0]
+        return "/" + letter + rest
     return res
 
 def to_dos_path(path):
@@ -429,6 +429,24 @@ def to_native_path(path):
     if sys.platform.startswith("win"):
         path = to_dos_path(path)
     return path
+
+
+def is_path_inside(a, b):
+    """ Returns True if a is inside b
+
+    >>> is_path_inside("foo/bar", "foo")
+    True
+    >>> is_path_inside("gui/bar/libfoo", "lib")
+    False
+    """
+    a_split = a.split(os.path.sep)
+    b_split = b.split(os.path.sep)
+    if len(a_split) < len(b_split):
+        return False
+    for (a_part, b_part) in zip(a_split, b_split):
+        if a_part != b_part:
+            return False
+    return True
 
 
 class TempDir:
@@ -537,7 +555,23 @@ def is_runtime(filename):
     # not enough
     return True
 
+def broken_symlink(file_path):
+    """ Returns True if the file is a broken symlink
 
+    """
+    return os.path.lexists(file_path) and not os.path.exists(file_path)
+
+def is_binary(file_path):
+    """ Returns True if the file is binary
+
+    """
+    with open(file_path, 'rb') as fp:
+        data = fp.read(1024)
+        if not data:
+            return False
+        if b'\0' in data:
+            return True
+        return False
 
 def is_executable_binary(file_path):
     """ Returns true if the file:
@@ -548,11 +582,4 @@ def is_executable_binary(file_path):
         return False
     if not os.access(file_path, os.X_OK):
         return False
-    with open(file_path, 'rb') as fp:
-        data = fp.read(1024)
-        if not data:
-            return False
-        if b'\0' in data:
-            return True
-        return False
-
+    return is_binary(file_path)

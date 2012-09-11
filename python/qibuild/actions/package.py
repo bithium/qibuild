@@ -5,16 +5,11 @@
 
 import os
 import sys
-import logging
 
+from qibuild import ui
 import qibuild
 
-LOGGER = logging.getLogger(__name__)
-
-
-def get_package_name(project,
-    version=None,
-    config=None):
+def get_package_name(project, version=None, config=None):
     """Get the package name of a project.
 
     Recognized args are:
@@ -70,30 +65,33 @@ def _do_package(args, project_name, destdir, debug):
     something else
 
     """
+    build_type= ""
     if debug:
+        build_type = "debug"
         build_args = ["--debug",  project_name]
     else:
+        build_type = "release"
         build_args = ["--release", project_name]
 
+    ui.info(ui.green, "> Configuring ... (%s)" % build_type)
     qibuild.run_action("qibuild.actions.configure", build_args + ["--no-clean-first"],
         forward_args=args)
-    qibuild.run_action("qibuild.actions.make", build_args,
+    print
+    ui.info(ui.green, "> Building ... (%s)" % build_type)
+    qibuild.run_action("qibuild.actions.make", build_args + ["--no-fix-shared-libs"],
         forward_args=args)
+    ui.info(ui.green, "> Installing ... (%s)" % build_type)
     qibuild.run_action("qibuild.actions.install", build_args + [destdir],
         forward_args=args)
+    print
 
 def do(args):
     """Main entry point"""
-    toc = qibuild.toc_open(args.work_tree, args)
+    toc = qibuild.toc_open(args.worktree, args)
     config = toc.active_config
-    if not args.project:
-        project_name = qibuild.toc.project_from_cwd()
-    else:
-        project_name = args.project
-    project = toc.get_project(project_name)
-    package_name = get_package_name(project,
-        version=args.version, config=config)
-    destdir = os.path.join(toc.work_tree, "package")
+    project = qibuild.cmdparse.project_from_args(toc, args)
+    package_name = get_package_name(project, version=args.version, config=config)
+    destdir = os.path.join(toc.worktree.root, "package")
     destdir = os.path.join(destdir, package_name)
 
     if args.internal:
@@ -101,24 +99,28 @@ def do(args):
 
     if sys.platform.startswith("win") and not args.runtime:
         # Ignore the --release flag and always build in debug and in release:
-        _do_package(args, project_name, destdir, debug=True)
-        _do_package(args, project_name, destdir, debug=False)
+        _do_package(args, project.name, destdir, debug=True)
+        _do_package(args, project.name, destdir, debug=False)
     else:
-        qibuild.run_action("qibuild.actions.configure", [project_name, "--no-clean-first"],
+        ui.info(ui.green, "> Configuring ...")
+        qibuild.run_action("qibuild.actions.configure", [project.name, "--no-clean-first"],
             forward_args=args)
-        qibuild.run_action("qibuild.actions.make", [project_name],
+        print
+        ui.info(ui.green, "> Building ...")
+        qibuild.run_action("qibuild.actions.make", [project.name, "--no-fix-shared-libs"],
             forward_args=args)
-        qibuild.run_action("qibuild.actions.install", [project_name, destdir],
+        print
+        ui.info(ui.green, "> Installing ...")
+        qibuild.run_action("qibuild.actions.install", [project.name, destdir],
             forward_args=args)
-
+        print
 
     if args.compress:
-        LOGGER.info("Compressing package")
-        archive = qibuild.archive.zip(destdir)
-        LOGGER.info("Package generated in %s", archive)
+        ui.info(ui.green, "> Compressing package ...")
+        archive = qibuild.archive.compress(destdir, algo="zip", quiet=True)
+        ui.info(ui.green, "Package generated in", ui.reset, ui.bold, archive)
         # Now, clean the destdir.
         qibuild.sh.rm(destdir)
         return archive
     else:
         return destdir
-

@@ -6,6 +6,7 @@
 
 """
 
+import qixml
 from xml.etree import ElementTree as etree
 
 class Depends:
@@ -23,13 +24,9 @@ class SphinxDoc:
         self.depends = list()
 
     def parse(self, element):
-        self.name = element.get("name")
-        self.src  = element.get("src")
-        dest = element.get("dest")
-        if dest is None:
-            self.dest = self.name
-        else:
-            self.dest = dest
+        self.name = qixml.parse_required_attr(element, "name")
+        self.src  = element.get("src", ".")
+        self.dest = element.get("dest", self.name)
         depends_elements = element.findall("depends")
         for depends_element in depends_elements:
             depends = Depends()
@@ -44,88 +41,15 @@ class DoxyDoc:
         self.depends = list()
 
     def parse(self, element):
-        self.name = element.get("name")
-        self.src  = element.get("src")
-        dest = element.get("dest")
-        if dest is None:
-            self.dest = self.name
-        else:
-            self.dest = dest
+        self.name = qixml.parse_required_attr(element, "name")
+        self.src = element.get("src", ".")
+        self.dest = element.get("dest", self.name)
         depends_elements = element.findall("depends")
         for depends_element in depends_elements:
             depends = Depends()
             depends.parse(depends_element)
             self.depends.append(depends.name)
 
-class DoxygenTemplates:
-    def __init__(self):
-        self.doxyfile = None
-        self.css = None
-        self.header = None
-        self.footer = None
-
-    def parse(self, element):
-        self.doxyfile = element.get("doxyfile")
-        self.css = element.get("css")
-        self.header = element.get("header")
-        self.footer = element.get("footer")
-
-class SphinxTemplates:
-    def __init__(self):
-        self.config = None
-        self.themes = None
-
-    def parse(self, element):
-        self.config = element.get("config")
-        self.themes = element.get("themes")
-
-
-class Templates:
-    def __init__(self):
-        self.repo = None
-
-    def parse(self, element):
-        self.repo = element.get("repo")
-
-class Defaults:
-    def __init__(self):
-        self.root_project = None
-
-    def parse(self, element):
-        self.root_project = element.get("root_project")
-
-class QiDocConfig:
-    def __init__(self):
-        self.defaults = Defaults()
-        self.templates = Templates()
-
-    def parse(self, element):
-        defaults_tree = element.find("defaults")
-        if defaults_tree is not None:
-            self.defaults = Defaults()
-            self.defaults.parse(defaults_tree)
-
-        template_tree = element.find("templates")
-        if template_tree is not None:
-            self.templates = Templates()
-            self.templates.parse(template_tree)
-
-def parse_qidoc_config(config_path):
-    """ Parse a config file, returns a
-    QiDoc object
-
-    """
-    tree = etree.ElementTree()
-    try:
-        tree.parse(config_path)
-    except Exception, e:
-        mess  = "Could not parse config from %s\n" % config_path
-        mess += "Error was: %s" % e
-        raise Exception(mess)
-    res = QiDocConfig()
-    root = tree.getroot()
-    res.parse(root)
-    return res
 
 def parse_project_config(config_path):
     """ Parse a config file, returns a  tuple

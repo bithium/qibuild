@@ -7,32 +7,45 @@
 #
 # This CMake module provides functions to interface gtest with ctest.
 #
+# .. seealso::
+#
+#    * :ref:`qibuild-ctest`
+#
 
 
-set(_TESTS_RESULTS_FOLDER "${CMAKE_SOURCE_DIR}/build-tests/results" CACHE INTERNAL "" FORCE)
+set(_TESTS_RESULTS_FOLDER "${CMAKE_CURRENT_BINARY_DIR}/test-results" CACHE INTERNAL "" FORCE)
 
 
-
-#! Create a new test.
-# Note that the resulting executable will NOT
-# be installed by default.
-# The name of the test will match the target name
+#! Create a new test that can be run by CTest or `qibuild test`
+#
+# Notes:
+#  * The resulting executable will not be installed
+#  * The name of the test will always be the name of the target.
+#  * The test won't be built if BUILD_TESTS is OFF
+#
+# .. seealso::
+#
+#    * :ref:`qibuild-ctest`
 #
 # \arg:name the name of the test and the target
 # \group:SRC  sources of the test
 # \group:DEPENDS the dependencies of the test
-# \param:TIMEOUT the timeout of the test
+# \param:TIMEOUT the timeout of the test. Not that TIMEOUT >= 20 causes
+#                the test to be disabled unless QI_NIGHTLY_TESTS is ON
 # \group:ARGUMENTS arguments to be passed to the executable
-# \flag:INSTALL wether the test should be installed (false by default)
 # \argn: source files (will be merged with the SRC group of arguments)
-#
 function(qi_create_test name)
   if (DEFINED BUILD_TESTS AND NOT BUILD_TESTS)
     qi_debug("Test(${name}) disabled by BUILD_TESTS=OFF")
     qi_set_global(QI_${name}_TARGET_DISABLED TRUE)
     return()
   endif()
-  cmake_parse_arguments(ARG "INSTALL" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
+  cmake_parse_arguments(ARG "" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
+  if("${ARG_TIMEOUT}" GREATER 19)
+    if(NOT ${QI_NIGHTLY_TESTS})
+      return()
+    endif()
+  endif()
   qi_create_bin(${name} SRC ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS} NO_INSTALL)
   if(ARG_DEPENDS)
     qi_use_lib(${name} ${ARG_DEPENDS})
@@ -44,13 +57,20 @@ function(qi_create_test name)
 endfunction()
 
 
-#! This compiles and add_test's a CTest test that uses gtest.
-# (so that the test can be run by CTest)
+#! This compiles and add a test using gtest that can be run by CTest or
+# `qibuild test`
 #
-# When running ctest, an XML xUnit xml file wiil be created to
+# When running ctest, an XML xUnit file wiil be created in
 # ${CMAKE_SOURCE_DIR}/test-results/${test_name}.xml
 #
-# The name of the test will always be the name of the target.
+# Notes:
+#
+#  * The test won't be built at all if GTest is not found.
+#  * The name of the test will always be the name of the target.
+#
+# .. seealso::
+#
+#    * :ref:`qibuild-ctest`
 #
 # \arg:name name of the test
 # \flag:NO_ADD_TEST Do not call add_test, just create the binary
@@ -59,6 +79,7 @@ endfunction()
 # \group:SRC Sources
 # \group:DEPENDS Dependencies to pass to use_lib
 # \group:ARGUMENTS Arguments to pass to add_test (to your test program)
+#
 function(qi_create_gtest name)
   if (DEFINED BUILD_TESTS AND NOT BUILD_TESTS)
     qi_debug("Test(${name}) disabled by BUILD_TESTS=OFF")
@@ -102,6 +123,11 @@ function(qi_create_gtest name)
   # create tests_results folder if it does not exist
   file(MAKE_DIRECTORY "${_TESTS_RESULTS_FOLDER}")
   cmake_parse_arguments(ARG "NO_ADD_TEST" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
+  if("${ARG_TIMEOUT}" GREATER 19)
+    if(NOT ${QI_NIGHTLY_TESTS})
+      return()
+    endif()
+  endif()
 
   # First, create the target
   qi_create_bin(${name} SRC ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS} NO_INSTALL)
@@ -131,8 +157,9 @@ function(qi_create_gtest name)
   )
 endfunction()
 
-#! Add a test using a binary that was created by qi_create_bin
-# This calls add_test() with the same arguements but:
+#! Add a test using a binary that was created by :cmake:function:`qi_create_bin`
+#
+# This calls ``add_test()`` with the same arguments but:
 #
 #  * We look for the binary in sdk/bin, and we know
 #    there is a _d when using Visual Studio
@@ -148,6 +175,12 @@ endfunction()
 # \group:ARGUMENTS Arguments to be passed to the executable
 function(qi_add_test test_name target_name)
   cmake_parse_arguments(ARG "" "TIMEOUT" "ARGUMENTS" ${ARGN})
+
+  if("${ARG_TIMEOUT}" GREATER 19)
+    if(NOT ${QI_NIGHTLY_TESTS})
+      return()
+    endif()
+  endif()
 
   if(NOT ARG_TIMEOUT)
     set(ARG_TIMEOUT 20)

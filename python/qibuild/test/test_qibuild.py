@@ -10,8 +10,8 @@
 import os
 import difflib
 
+import pytest
 import unittest
-import qibuild
 import qibuild
 
 
@@ -21,6 +21,8 @@ except ImportError:
     from qibuild.external import argparse
 
 
+# pylint: disable-msg=E1101
+@pytest.mark.slow
 class QiBuildTestCase(unittest.TestCase):
     def setUp(self):
         self.test_dir = os.path.abspath(os.path.dirname(__file__))
@@ -32,7 +34,7 @@ class QiBuildTestCase(unittest.TestCase):
             self.args.verbose = True
         if os.environ.get("PDB"):
             self.args.pdb = True
-        self.args.work_tree = self.test_dir
+        self.args.worktree = self.test_dir
         # Run qibuild clean
         self._run_action('clean', '-f')
 

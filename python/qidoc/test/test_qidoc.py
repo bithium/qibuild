@@ -5,6 +5,7 @@
 import os
 import tempfile
 import unittest
+import pytest
 
 import qidoc.core
 import qibuild
@@ -16,11 +17,12 @@ def check_tools():
 
     """
     executables = dict()
-    for name in ["sphinx-build", "sphinx-build2", "doxygen"]:
+    for name in ["sphinx-build", "sphinx-build2", "doxygen", "dot"]:
         executables[name] = qibuild.command.find_program(name)
 
     res = executables["sphinx-build"] or executables["sphinx-build2"]
     res = res and executables["doxygen"]
+    res = res and executables["dot"]
     return res
 
 class TestQiDoc(unittest.TestCase):
@@ -36,14 +38,27 @@ class TestQiDoc(unittest.TestCase):
     def tearDown(self):
         qibuild.sh.rm(self.tmp)
 
+    @pytest.mark.slow
     @unittest.skipUnless(check_tools(), "Some required tools are not installed")
     def test_build(self):
         opts = dict()
         opts["version"] = 1.42
-        self.qidoc_builder.build(opts)
+        self.qidoc_builder.build_all(opts)
         submodule_zip = os.path.join(self.out_dir,
             "qibuild", "_downloads", "submodule.zip")
         self.assertTrue(os.path.exists(submodule_zip))
+
+    @pytest.mark.slow
+    def test_build_single_dox(self):
+        opts = dict()
+        opts["version"] = "1.42"
+        self.qidoc_builder.build_single("libqi", opts)
+
+    @pytest.mark.slow
+    def test_build_single_sphinx(self):
+        opts = dict()
+        opts["version"] = "1.42"
+        self.qidoc_builder.build_single("qibuild", opts)
 
     def test_cfg_parse(self):
         qibuild_sphinx = self.qidoc_builder.sphinxdocs["qibuild"]

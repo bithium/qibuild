@@ -6,7 +6,7 @@
 
 """
 
-import logging
+from qibuild import ui
 import qibuild
 import qibuild.cmdparse
 
@@ -15,30 +15,35 @@ def configure_parser(parser):
     qibuild.parsers.toc_parser(parser)
     qibuild.parsers.build_parser(parser)
     qibuild.parsers.project_parser(parser)
-    parser.add_argument("--target", help="Special target to build")
-    parser.add_argument("--rebuild", "-r", action="store_true", default=False)
+    group = parser.add_argument_group("make options")
+    group.add_argument("-t", "--target", help="Special target to build")
+    group.add_argument("--rebuild", "-r", action="store_true", default=False)
+    group.add_argument("--no-fix-shared-libs",  action="store_false",
+                        dest="fix_shared_libs",
+                        help="Do not try to fix shared libraries after build. "
+                             "Used by `qibuild package`")
 
 def do(args):
     """Main entry point"""
-    logger   = logging.getLogger(__name__)
-    toc      = qibuild.toc.toc_open(args.work_tree, args)
-
-    (project_names, _package_names, _not_found) = toc.resolve_deps()
+    toc = qibuild.toc.toc_open(args.worktree, args)
+    (_, projects) = qibuild.cmdparse.deps_from_args(toc, args)
     use_incredibuild = toc.config.build.incredibuild
 
+    ui.info(ui.green, "Current worktree:", ui.reset, ui.bold, toc.worktree.root)
     if toc.active_config:
-        logger.info("Active configuration: %s (%s)", toc.active_config, toc.build_type)
+        ui.info(ui.green, "Active configuration: ",
+                ui.blue, "%s (%s)" % (toc.active_config, toc.build_type))
 
-    for project_names in project_names:
-        project = toc.get_project(project_names)
+    project_count = len(projects)
+    i = 0
+    for project in projects:
+        i += 1
         if args.target:
-            logger.info("Building target %s for project %s in %s (%s)",
-                args.target, project.name, toc.build_folder_name, toc.build_type)
+            mess = "Building target %s for" % args.target
         else:
-            logger.info("Building %s in %s (%s)", project.name, toc.build_folder_name, toc.build_type)
+            mess = "Building"
+        ui.info(ui.green, "*", ui.reset, "(%i/%i)" % (i, project_count),
+                ui.green, mess, ui.blue, project.name)
         toc.build_project(project, target=args.target, num_jobs=args.num_jobs,
-            incredibuild=use_incredibuild, rebuild=args.rebuild)
-
-
-
-
+                          incredibuild=use_incredibuild, rebuild=args.rebuild,
+                          fix_shared_libs=args.fix_shared_libs)
