@@ -9,12 +9,12 @@
 import os
 import re
 import sys
-import qibuild.log
+import qisys.log
 import urlparse
 
-from qibuild import ui
+from qisys import ui
 import qisrc.git
-import qibuild.interact
+import qisys.interact
 import qibuild.config
 
 def parse_git_url(url):
@@ -49,7 +49,6 @@ def http_to_ssh(url, project_name, username, gerrit_ssh_port=29418):
     return res
 
 
-
 def fetch_gerrit_hook(path, username, server, port):
     """ Fetch the ``commit-msg`` hook from gerrit
 
@@ -57,11 +56,11 @@ def fetch_gerrit_hook(path, username, server, port):
     git_hooks_dir = os.path.join(path, ".git", "hooks")
     if sys.platform.startswith("win"):
         # scp on git bash does not handle DOS paths:
-        git_hooks_dir = qibuild.sh.to_posix_path(git_hooks_dir, fix_drive=True)
+        git_hooks_dir = qisys.sh.to_posix_path(git_hooks_dir, fix_drive=True)
     cmd = ["scp", "-P" , str(port),
         "%s@%s:hooks/commit-msg" % (username, server),
         git_hooks_dir]
-    qibuild.command.call(cmd, quiet=True)
+    qisys.command.call(cmd, quiet=True)
 
 
 def check_gerrit_connection(username, server, gerrit_ssh_port=29418):
@@ -70,8 +69,8 @@ def check_gerrit_connection(username, server, gerrit_ssh_port=29418):
         "%s@%s" % (username, server),
         "gerrit", "version"]
     try:
-        qibuild.command.call(cmd, quiet=True)
-    except qibuild.command.CommandFailedException:
+        qisys.command.call(cmd, quiet=True)
+    except qisys.command.CommandFailedException:
         return False
     return True
 
@@ -86,7 +85,7 @@ def ask_gerrit_username(server, gerrit_ssh_port=29418):
     # works on UNIX and git bash:
     username = os.environ.get("USERNAME")
     if not username:
-        username = qibuild.interact.ask_string("Please enter your username")
+        username = qisys.interact.ask_string("Please enter your username")
         if not username:
             return
     ui.info("Checking gerrit connection with %s@%s:%i" %
@@ -96,11 +95,11 @@ def ask_gerrit_username(server, gerrit_ssh_port=29418):
         return username
 
     ui.warning("Could not connect to ssh using username", username)
-    try_other = qibuild.interact.ask_yes_no("Do you want to try with another username?")
+    try_other = qisys.interact.ask_yes_no("Do you want to try with another username?")
     if not try_other:
         return
 
-    username = qibuild.interact.ask_string("Please enter your username")
+    username = qisys.interact.ask_string("Please enter your username")
     if not username:
         return
 
@@ -167,6 +166,23 @@ def setup_project(project_path, project_name, review_url, branch):
     ui.info(ui.green, "[OK]")
     return True
 
+def guess_emails(git, reviewers):
+    """ Fix the reviewer list.
+
+    Complete the email addresses with the committer email's domain name
+    when just the reviewer username is given, using the domain name of the
+    'user.email' setting from the given git.
+
+    :return: the list of reviewers' email
+
+    """
+    domain_name = git.get_config("user.email")
+    domain_name = domain_name.rsplit("@")[1]
+    for idx, reviewer in enumerate(reviewers):
+        if "@" not in reviewer:
+            reviewers[idx] = reviewer + "@" + domain_name
+    return reviewers
+
 def push(project_path, branch, review=True, dry_run=False, reviewers=None):
     """ Push the changes for review.
 
@@ -191,6 +207,7 @@ def push(project_path, branch, review=True, dry_run=False, reviewers=None):
         ui.info('Pushing code to gerrit for review.')
         args.append("%s:refs/for/%s" % (branch, branch))
         if reviewers:
+            reviewers = guess_emails(git, reviewers)
             receive_pack = "git receive-pack"
             for reviewer in reviewers:
                 receive_pack += " --reviewer=%s" % reviewer

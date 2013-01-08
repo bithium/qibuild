@@ -12,13 +12,15 @@ DOCUMENTED_FILES=[
     "stage",
     "install",
     "tests",
+    "perf",
     "submodule",
     "option",
     "codegen",
     "find",
     "flags",
     "swig/python",
-    "swig/java"
+    "swig/java",
+    "subdirectory",
 ]
 
 import re

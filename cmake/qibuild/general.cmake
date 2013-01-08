@@ -37,11 +37,11 @@ include("qibuild/set")
 # Make sure custom -config.cmake files are found *before* the
 # one in the system (useful for using qibuild/modules/gtest-config.cmake,
 # and not /usr/share/cmake/modules/FindGTest.cmake)
-qi_append_uniq_global(CMAKE_FIND_ROOT_PATH "${_ROOT_DIR}/modules/")
+qi_persistent_append_uniq(CMAKE_FIND_ROOT_PATH "${_ROOT_DIR}/modules/")
 
 #include new cmake modules, when using old cmake
 if(${CMAKE_VERSION} VERSION_LESS 2.8.3)
-  qi_append_uniq_global(CMAKE_MODULE_PATH "${_ROOT_DIR}/upstream-backports")
+  qi_persistent_append_uniq(CMAKE_MODULE_PATH "${_ROOT_DIR}/upstream-backports")
 endif()
 
 set(QI_ROOT_DIR ${_ROOT_DIR})
@@ -72,9 +72,10 @@ include("qibuild/submodule")
 include("qibuild/stage")
 include("qibuild/option")
 include("qibuild/codegen")
+include("qibuild/perf")
 
 # Find libraries from self sdk dir before everything else.
-qi_prepend_uniq_global(CMAKE_FIND_ROOT_PATH "${QI_SDK_DIR}")
+qi_persistent_prepend_uniq(CMAKE_FIND_ROOT_PATH "${QI_SDK_DIR}")
 
 _qi_autostrap_update()
 
@@ -101,10 +102,21 @@ if(_dpkg_architecture)
   endif()
 endif()
 
-qi_uniq_global(CMAKE_FIND_ROOT_PATH)
-qi_uniq_global(CMAKE_PREFIX_PATH)
-qi_uniq_global(CMAKE_MODULE_PATH)
-#qi_uniq_global(CMAKE_INCLUDE_PATH)
+if (DEFINED  CMAKE_FIND_ROOT_PATH)
+  list(REVERSE           CMAKE_FIND_ROOT_PATH)
+  list(REMOVE_DUPLICATES CMAKE_FIND_ROOT_PATH)
+  list(REVERSE           CMAKE_FIND_ROOT_PATH)
+endif()
+if (DEFINED  CMAKE_PREFIX_PATH)
+  list(REVERSE           CMAKE_PREFIX_PATH)
+  list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
+  list(REVERSE           CMAKE_PREFIX_PATH)
+endif()
+if (DEFINED  CMAKE_MODULE_PATH)
+  list(REVERSE           CMAKE_MODULE_PATH)
+  list(REMOVE_DUPLICATES CMAKE_MODULE_PATH)
+  list(REVERSE           CMAKE_MODULE_PATH)
+endif()
 
 qi_debug("CMAKE_FIND_ROOT_PATH  = ${CMAKE_FIND_ROOT_PATH}")
 qi_debug("CMAKE_PREFIX_PATH     = ${CMAKE_PREFIX_PATH}")

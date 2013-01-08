@@ -2,359 +2,212 @@
 ## Use of this source code is governed by a BSD-style license that can be
 ## found in the COPYING file.
 
-""" This package contains the QiDoc object
+"""This package contains the QiDoc object."""
 
-"""
+import itertools
 import os
 import sys
-import pprint
 import webbrowser
 
-import qisrc
-
-from qibuild import ui
-import qibuild
-from qibuild.dependencies_solver import topological_sort
+import qisys
 import qidoc.config
-import qidoc.sphinx
-import qidoc.doxygen
 
+from qisys import ui
 
 class QiDocBuilder:
-    """ A class to handle doc generation of several
-    projects
+    """A class to handle doc generation of several projects."""
 
-    """
-    def __init__(self, in_dir, out_dir="build-doc"):
-        self.worktree = qisrc.worktree.open_worktree(in_dir)
-        self.in_dir = in_dir
-        self.out_dir = out_dir
-        # Set during configure_all()
-        self.opts = dict()
+    def __init__(self, projects, in_dir, out_dir=None):
+        self.worktree = qisys.worktree.open_worktree(in_dir)
+        self.projects, self.projects_to_build = projects, []
 
-        self.templates_path = None
-        self.sphinxdocs = dict()
-        self.doxydocs = dict()
+        self.templates_path, self.docs, self.in_dir = None, dict(), in_dir
+        if not out_dir:
+            self.out_dir = os.path.join(self.worktree.root, "build-doc")
+        else:
+            self.out_dir = qisys.sh.to_native_path(out_dir)
 
-        # Will fill up self.templates_path, self.sphinxdocs and self.doxydocs
         self._load_doc_projects()
-        self.deps_tree = self.get_deps_tree()
-        ui.debug("QiDocBuilder dep tree: ", pprint.pformat(self.deps_tree))
-
-        if not self.templates_path:
-            mess  = "Could not find any template repo\n"
-            mess += "Please make sure that one of the qiproject.xml looks like:\n"
-            mess += '<qiproject template_repo="yes" />\n'
-            raise Exception(mess)
         self.doxytags_path = os.path.join(self.out_dir, "doxytags")
 
-    def get_deps_tree(self):
-        """ Get the tree of dependencies
+    def configure(self, opts, project=None):
+        """Configure every projects.
 
-        It is a dict {type:deps_tree} where
-        type is 'sphinx' or 'doxygen', and
-        deps_tree is a dict:
-            {name:[dep names]}
+        Always called before building anything.
         """
-        doxy_tree = dict()
-        sphinx_tree = dict()
-        res = dict()
-        for doxydoc in self.doxydocs.values():
-            doxy_tree[doxydoc.name] = doxydoc.depends
-            # Check that every dep exists:
-            for dep in doxydoc.depends:
-                if self.get_doc("doxygen", dep) is None:
-                    mess  = "Could not find doxygen doc dep: %s\n" % dep
-                    mess += "(brought by: %s)" % doxydoc.name
-                    ui.warning(mess)
-                    doxydoc.depends.remove(dep)
+        if 'version' not in opts:
+            raise VersionKeyMissingError(opts)
 
-        for sphinxdoc in self.sphinxdocs.values():
-            sphinx_tree[sphinxdoc.name] = sphinxdoc.depends
-            # Check that every dep exists:
-            for dep in sphinxdoc.depends:
-                if self.get_doc("sphinx", dep) is None:
-                    mess  = "Could not find sphinx doc dep %s\n" % dep
-                    mess += "(brought by: %s)" % sphinxdoc.name
-                    ui.warning(mess)
-                    sphinxdoc.depends.remove(dep)
+        qisys.sh.mkdir(self.doxytags_path, recursive=True)
 
-        res["doxygen"] = doxy_tree
-        res["sphinx"]  = sphinx_tree
-        return res
+        kwargs = {
+            'doxytags_path': self.doxytags_path,
+            'templates': self.templates_path,
+            'doxylink': dict(),
+        }
+        if project is not None:
+            if project not in self.docs:
+                raise NoSuchProjectError(project)
+            self.docs[project].configure(self.docs, opts, **kwargs)
+            return
+        for doc in self.docs.values():
+            doc.configure(self.docs, opts, **kwargs)
 
+    def build(self, opts, project=None):
+        """Build everything."""
+        self.configure(opts, project=project)
 
-    def configure_all(self, opts):
-        """ Configure every projects.
+        # We don't check that project exists because configure method should
+        # already have checked this.
+        if project is not None:
+            self.docs[project].build(self.docs, opts)
+            return
+        if len(self.projects) == len(self.docs.keys()):
+            ui.warning('Building the whole worktree.')
+        for doc in self.projects_to_build:
+            self.docs[doc.name].build(self.docs, opts)
 
-        Always called before building anything
-
-        """
-        version = opts.get("version")
-        if not version:
-            raise Exception("opts dict must at least contain a 'version' key")
-
-        self.opts = opts.copy()
-        qibuild.sh.mkdir(self.doxytags_path, recursive=True)
-        doxylink = dict()
-
-        doxydocs = self.sort_doxygen()
-        for doxydoc in doxydocs:
-            doxygen_mapping = self.get_doxygen_mapping(doxydoc.name)
-            qidoc.doxygen.configure(doxydoc.src,
-                    self.templates_path,
-                    opts,
-                    project_name=doxydoc.name,
-                    doxytags_path=self.doxytags_path,
-                    doxygen_mapping=doxygen_mapping)
-
-            tag_file = os.path.join(self.doxytags_path, doxydoc.name + ".tag")
-            # Store full path here because we'll need to compute
-            # a relative path later
-            doxylink[doxydoc.name] = (tag_file, doxydoc.dest)
-
-        sphinxdocs = self.sort_sphinx()
-        for sphinxdoc in sphinxdocs:
-            intersphinx_mapping = self.get_intersphinx_mapping(sphinxdoc.name)
-            qidoc.sphinx.configure(sphinxdoc.src, sphinxdoc.dest,
-                self.templates_path,
-                intersphinx_mapping,
-                doxylink,
-                opts)
-            qidoc.sphinx.gen_download_zips(sphinxdoc.src)
-
-    def build_all(self, opts):
-        """ Build everything
-
-        """
-        self.configure_all(opts)
-        doxydocs = self.sort_doxygen()
-        for doxydoc in doxydocs:
-            qidoc.doxygen.build(doxydoc.src, doxydoc.dest, opts)
-        sphinxdocs = self.sort_sphinx()
-        for sphinxdoc in sphinxdocs:
-            qidoc.sphinx.build(sphinxdoc.src, sphinxdoc.dest, opts)
-
-
-    def build_single(self, project, opts):
-        """ Used to build a single project
-
-        """
-        sphinx = self.get_doc("sphinx", project)
-        doxy   = self.get_doc("doxygen", project)
-
-        if sphinx is None and doxy is None:
-            raise Exception("No such project: %s" % project)
-
-        self.configure_all(opts)
-
-        if sphinx:
-            qidoc.sphinx.build(sphinx.src, sphinx.dest, opts)
-        if doxy:
-            qidoc.doxygen.build(doxy.src, doxy.dest, opts)
-
-
-    def open_main(self):
-        """ Used to open main doc. We assume one of the project
-        as a dest equals to "."
-
-        """
-        index_html = os.path.join(self.out_dir, "index.html")
-        print "Opening", index_html, "in a web browser"
+    def open(self, project=None):
+        '''Opens a project in browser.'''
+        out_dir = self.out_dir
+        if project is not None:
+            if project not in self.docs:
+                raise NoSuchProjectError(project)
+            out_dir = self.docs[project].dest
+        if len(self.projects_to_build) == 1:
+            out_dir = self.projects_to_build[0].dest
+        elif len(self.projects) != len(self.worktree.projects):
+            p_names = [p.name for p in self.projects_to_build]
+            p_name = qisys.interact.ask_choice(p_names,
+                                                 "Please choose in the following list")
+            if p_name:
+                out_dir = self.docs[p_name].dest
+        index_html = os.path.join(out_dir, "index.html")
+        if not os.path.exists(index_html):
+            raise Exception("""\
+Could not find an index.html in {out_dir}
+Try running `qidoc build`""".format(out_dir=out_dir))
+        ui.info("Opening", index_html, "in a web browser")
         if sys.platform == "darwin":
             index_html = "file://" + index_html
         webbrowser.open(index_html)
-
-    def open_single(self, project):
-        """ User to open a single doc
-
-        """
-
-        doc_proj = self.get_doc("sphinx", project)
-        if not doc_proj:
-            doc_proj = self.get_doc("doxygen", project)
-        if not doc_proj:
-            raise Exception("No such project: %s" % project)
-
-        index_html = os.path.join(doc_proj.dest, "index.html")
-        print "Opening", index_html, "in a web browser"
-        if sys.platform == "darwin":
-            index_html = "file://" + index_html
-        webbrowser.open(index_html)
-
-    def sort_doxygen(self):
-        """ Get a list of doxygen docs to build
-
-        """
-        deps_tree = self.deps_tree["doxygen"]
-        doc_names = topological_sort(deps_tree, self.doxydocs.keys())
-        res = [self.get_doc("doxygen", d) for d in doc_names]
-        return res
-
-    def sort_sphinx(self):
-        """ Get a list of sphinx docs to build, in the
-        correct order
-
-        """
-        deps_tree = self.deps_tree["sphinx"]
-        doc_names = topological_sort(deps_tree, self.sphinxdocs.keys())
-        res = [self.get_doc("sphinx", d) for d in doc_names]
-        return res
-
-    def get_intersphinx_mapping(self, name):
-        """ Get the relevant intersphinx_mapping for
-        the given name
-
-        """
-        res = dict()
-        deps_tree = self.deps_tree["sphinx"]
-        doc_names = topological_sort(deps_tree, [name])
-        docs = [self.get_doc("sphinx", d) for d in doc_names]
-        for doc in docs:
-            # Remove self from the list:
-            if doc.name != name:
-                res[doc.name] = (doc.dest, None)
-        return res
-
-    def get_doxygen_mapping(self, name):
-        """ Get the relevant Doxygen TAGFILES setting
-
-        """
-        doc = self.get_doc("doxygen", name)
-        res = dict()
-        deps_tree = self.deps_tree["doxygen"]
-        dep_doc_names = topological_sort(deps_tree, [name])
-        dep_docs = [self.get_doc("doxygen", d) for d in dep_doc_names]
-        for dep_doc in dep_docs:
-            # Remove self from the list
-            if dep_doc.name == name:
-                continue
-            doxytag_file = os.path.join(self.doxytags_path,
-                dep_doc.name + ".tag")
-            dep_dest = dep_doc.dest
-            rel_path = os.path.relpath(dep_dest, doc.dest)
-            res[doxytag_file] = rel_path
-
-        return res
-
-
-    def get_doc(self, type_, name):
-        """ Retun a qibuild.config.SphinxDoc or a
-        qidoc.config.DoxyDoc object
-
-        """
-        if type_ == "doxygen":
-            return self.doxydocs.get(name)
-        if type_ == "sphinx":
-            return self.sphinxdocs.get(name)
 
     def _load_doc_projects(self):
-        """ Explore the qibuild projects, building the
-        sphinxdocs and doxydocs attributes
-
+        """Explore the qibuild projects, building the sphinxdocs and doxydocs
+        attributes.
         """
         for project in self.worktree.projects:
             qiproj_xml = os.path.join(project.path, "qiproject.xml")
             if not os.path.exists(qiproj_xml):
                 continue
-            (doxydocs, sphinxdocs) = qidoc.config.parse_project_config(qiproj_xml)
-            # Fixup src, dest attributes:
-            for doxydoc in doxydocs:
-                self.set_paths(project, doxydoc)
-                self.check_collision(doxydoc, "doxygen")
-                self.doxydocs[doxydoc.name] = doxydoc
-            for sphinxdoc in sphinxdocs:
-                self.set_paths(project, sphinxdoc)
-                self.check_collision(sphinxdoc, "sphinx")
-                self.sphinxdocs[sphinxdoc.name] = sphinxdoc
-            # Check if the project is a template project:
+            docs = qidoc.config.parse_project_config(qiproj_xml)
+            for doc in docs:
+                self._set_paths(project, doc)
+                if doc.name in self.docs:
+                    raise ProjectNameCollisionError(self.docs[doc.name], doc)
+                self.docs[doc.name] = doc
+                self.docs[doc.name].docs = self.docs
+                if project.src in [prj.src for prj in self.projects]:
+                    self.projects_to_build.append(doc)
             self.check_template(project.path, qiproj_xml)
+        if not self.templates_path:
+            raise NoTemplateRepositoryError()
 
-
-    def set_paths(self, worktree_project, doc_project):
-        """ Set src and dest attributes of the doc project
-
-        """
+    def _set_paths(self, worktree_project, doc_project):
+        """Set src and dest attributes of the doc project."""
         src = os.path.join(worktree_project.path, doc_project.src)
-        doc_project.src = qibuild.sh.to_native_path(src)
+        doc_project.src = qisys.sh.to_native_path(src)
         dest = os.path.join(self.out_dir, doc_project.dest)
-        doc_project.dest = qibuild.sh.to_native_path(dest)
-
-    def check_collision(self, project, doc_type):
-        """" Check for collision between doc projects
-
-        """
-        name = project.name
-        if doc_type == "doxygen":
-            other_project = self.doxydocs.get(name)
-        elif doc_type == "sphinx":
-            other_project = self.sphinxdocs.get(name)
-
-        if not other_project:
-            return
-
-        mess  = "Two %s projects have the same name: %s\n" % (doc_type, name)
-        mess += "First project is in: %s\n" % other_project.path
-        mess += "Other project is in: %s\n" % project.path
-        mess += "Please check your configuration"
-        raise Exception(mess)
+        doc_project.dest = qisys.sh.to_native_path(dest)
 
     def check_template(self, p_path, qiproj_xml):
-        """ Check whether a project is a template project
-        If not templates project has been found yet, set
-        self.templates_path, else raise an exception
-
+        """Check whether a project is a template project. If no templates
+        project has been found yet, then set self.templates_path, else raise an
+        exception.
         """
         is_template = qidoc.config.is_template(qiproj_xml)
         if not is_template:
             return
         if self.templates_path:
-            mess  = "Could not add project in %s" % (p_path)
-            mess += "as a template repository.\n"
-            mess += "There is already a template repository in %s\n" % self.templates_path
-            mess += "Please check your configuration"
-            raise Exception(mess)
+            raise TemplateProjectAlreadyExistsError(p_path, self.templates_path)
         self.templates_path = p_path
 
-    def project_from_cwd(self, cwd=None):
-        """ Get a doc project name from the current working dir
+    def documentations_list(self):
+        '''Returns a grouped list of documentations available and sorted, in
+        tuples (documentation_type_name, documentations).'''
+        keys, groups, grouper = [], [], lambda d: d.type_name()
+        lst = sorted(self.projects_to_build)
+        for key, group in itertools.groupby(lst, key=grouper):
+            keys.append(key)
+            groups.append(sorted(group))
+        return zip(keys, groups)
 
-        """
-        if not cwd:
-            cwd = os.getcwd()
-
-        for doxydoc in self.doxydocs.values():
-            if doxydoc.src in cwd:
-                return doxydoc.name
-        for sphinxdoc in self.sphinxdocs.values():
-            if sphinxdoc.src in cwd:
-                return sphinxdoc.name
+    def is_in_project(self):
+        return len(self.projects) != len(self.worktree.projects)
 
 
-def find_qidoc_root(cwd=None):
-    """ Find a qidoc root
+class ProjectNameCollisionError(Exception):
+    '''When two projects have the same name.'''
 
-    """
-    if not cwd:
-        cwd = os.getcwd()
-    dirname = None
-    while dirname or cwd:
-        if os.path.exists(os.path.join(cwd, ".qi", "worktree.xml")):
-            return cwd
-        (new_cwd, dirname) = os.path.split(cwd)
-        if new_cwd == cwd:
-            return
-        cwd = new_cwd
+    def __init__(self, project1, project2):
+        Exception.__init__(self)
+        self.project1, self.project2 = project1, project2
 
-def create_builder(worktree=None):
-    """ Open a new QiDocBuilder using
-    os.getcwd and looking for a qidoc.xml if root is None
+    def __str__(self):
+        return """Two projects have the same name: {name}
+First project is in: {path1} ({type1})
+Second project is in: {path2} ({type2})
+Please check your configuration.""".format(
+            name = self.project1.name,
+            path1 = self.project1.src, type1 = self.project1.type_name(),
+            path2 = self.project2.src, type2 = self.project2.type_name(),
+        )
 
-    """
-    if worktree is None:
-        worktree = find_qidoc_root(os.getcwd())
-        if not worktree:
-            raise Exception("Could not find qidoc worktree")
-    builder = QiDocBuilder(worktree)
-    return builder
 
+class TemplateProjectAlreadyExistsError(Exception):
+    '''There are two different projects for templates.'''
+
+    def __init__(self, path, existing_path):
+        Exception.__init__(self)
+        self.path, self.existing_path = path, existing_path
+
+    def __str__(self):
+        return """Could not add project in {path} as a template repository.
+There is already a template repository in {existing_path}.
+Please check your configuration.""".format(
+            path = self.path, existing_path = self.existing_path
+        )
+
+
+class NoTemplateRepositoryError(Exception):
+    '''There is no template repository in documentation directory.'''
+
+    def __str__(self):
+        return '''Could not find any template repository.
+Please make sure that one of the qiproject.xml looks like:
+<qiproject template_repo="yes" />'''
+
+
+class NoSuchProjectError(Exception):
+    '''The project requested doesn't exist.'''
+
+    def __init__(self, project):
+        Exception.__init__(self)
+        self.project = project
+
+    def __str__(self):
+        return 'No such project: {project}'.format(project = self.project)
+
+
+class VersionKeyMissingError(Exception):
+    '''Version key is not set in options for build.'''
+
+    def __init__(self, opts):
+        Exception.__init__(self)
+        self.opts = opts
+
+    def __str__(self):
+        return '''Opts dictionary must at least contain a 'version' key.
+It was containing the following keys: {keys}'''.format(
+            keys = ', '.join(sorted(self.opts.keys()))
+        )

@@ -9,7 +9,7 @@
 import os
 import posixpath
 
-import qibuild.sh
+import qisys.sh
 import qixml
 
 class NoManifest(Exception):
@@ -25,9 +25,7 @@ def git_url_join(remote, name):
     """ Join a remote ref with a name
 
     """
-    if remote.startswith("http://"):
-        return posixpath.join(remote, name)
-    if remote.startswith("ssh://"):
+    if remote.startswith(("http://", "ssh://")):
         return posixpath.join(remote, name)
     if "@" in remote:
         return remote + ":" + name
@@ -82,42 +80,21 @@ class Manifest():
         """
         self.xml_path = xml_path
         tree = qixml.read(xml_path)
-        remote_elems = tree.findall("remote")
-        for remote_elem in remote_elems:
-            remote = Remote()
-            remote.parse(remote_elem)
+
+        remotes = parse_remotes(tree)
+        for remote in remotes:
             self.remotes[remote.name] = remote
-        project_elems = tree.findall("project")
-        for project_elem in project_elems:
-            project = Project()
-            project.parse(project_elem)
-            self.projects.append(project)
-        blacklist_elems = tree.findall("blacklist")
-        for blacklist_elem in blacklist_elems:
-            name = blacklist_elem.get("name")
-            if name:
-                self.blacklist.append(name)
-        manifest_elems = tree.findall("manifest")
-        for manifest_elem in manifest_elems:
-            manifest_url = manifest_elem.get("url")
-            if manifest_url:
-                dirname = os.path.dirname(xml_path)
-                sub_manifest_xml = os.path.join(dirname, manifest_url)
-                sub_manifest = Manifest()
-                sub_manifest.xml_path = sub_manifest_xml
-                sub_manifest.parse(sub_manifest.xml_path)
-                self.sub_manifests.append(sub_manifest)
+
+        projects = parse_projects(tree)
+        self.projects.extend(projects)
+
+        blacklists = parse_blacklists(tree)
+        self.blacklist.extend(blacklists)
+
+        sub_manifests = parse_manifests(tree, xml_path)
+        self.sub_manifests.extend(sub_manifests)
+
         self.update_projects()
-
-    def get_project(self, name):
-        """ Get a project given its name.
-
-        Mainly used by tests
-        """
-        matches = [p for p in self.projects if p.name == name]
-        if matches:
-            return matches[0]
-        return None
 
     def update_projects(self):
         """ Update the project list, setting project.revision,
@@ -125,14 +102,22 @@ class Manifest():
 
         """
         for project in self.projects:
-            p_remote = project.remote
-            remote = self.remotes.get(p_remote)
+            remote = self.remotes.get(project.remote)
             if not remote:
                 continue
             if not project.revision:
                 project.revision = remote.revision
             project.fetch_url = git_url_join(remote.fetch, project.name)
             if project.review:
+                if not remote.review:
+                    mess = """ \
+Project {project.name} was configured for review
+but the associated remote ({remote.name}) has
+no review url set.\
+"""
+                    mess = mess.format(remote=remote, project=project)
+                    raise Exception(mess)
+
                 project.review_url = git_url_join(remote.review, project.name)
             conflicting_name = self._paths.get(project.path)
             if conflicting_name:
@@ -146,6 +131,22 @@ class Manifest():
         res += "   remotes: %s\n" % self.remotes
         res += "   projects: %s\n" % self.projects
         return res
+
+def parse_manifests(tree, xml_path):
+    sub_manifests = list()
+    manifest_elems = tree.findall("manifest")
+    for manifest_elem in manifest_elems:
+        manifest_url = manifest_elem.get("url")
+        if manifest_url:
+            dirname = os.path.dirname(xml_path)
+            sub_manifest_xml = os.path.join(dirname, manifest_url)
+            sub_manifest = Manifest()
+            sub_manifest.xml_path = sub_manifest_xml
+            sub_manifest.parse(sub_manifest.xml_path)
+            sub_manifests.append(sub_manifest)
+
+    return sub_manifests
+
 
 class Project:
     """ Wrapper for the <project> tag inside a manifest
@@ -168,19 +169,27 @@ class Project:
         if not xml_path:
             self.path = self.name.replace(".git", "")
         else:
-            self.path = qibuild.sh.to_posix_path(xml_path)
+            self.path = qisys.sh.to_posix_path(xml_path)
             self.path = posixpath.normpath(xml_path)
         self.revision = xml_element.get("revision")
         self.worktree_name = xml_element.get("worktree_name")
         self.review = qixml.parse_bool_attr(xml_element, "review")
-        self.remote = xml_element.get("remote")
-        if not self.remote:
-            self.remote = "origin"
+        self.remote = xml_element.get("remote", default="origin")
 
     def __repr__(self):
         res = "<Project %s remote: %s fetch: %s review:%s>" % \
             (self.name, self.remote, self.fetch_url, self.review_url)
         return res
+
+def parse_projects(tree):
+    projects = list()
+    project_elems = tree.findall("project")
+    for project_elem in project_elems:
+        project = Project()
+        project.parse(project_elem)
+        projects.append(project)
+
+    return projects
 
 
 class Remote:
@@ -195,16 +204,32 @@ class Remote:
         self.revision = None
 
     def parse(self, xml_element):
-        self.name = xml_element.get("name")
-        if not self.name:
-            self.name = "origin"
+        self.name = xml_element.get("name", default="origin")
         self.fetch = qixml.parse_required_attr(xml_element, "fetch")
         self.review = xml_element.get("review")
-        self.revision = xml_element.get("revision")
-        if not self.revision:
-            self.revision = "master"
+        self.revision = xml_element.get("revision", default="master")
 
     def __repr__(self):
         res = "<Remote %s fetch: %s on %s, review:%s>" % \
             (self.name, self.fetch, self.revision, self.review)
         return res
+
+def parse_remotes(tree):
+    remotes = list()
+    remote_elems = tree.findall("remote")
+    for remote_elem in remote_elems:
+        remote = Remote()
+        remote.parse(remote_elem)
+        remotes.append(remote)
+
+    return remotes
+
+def parse_blacklists(tree):
+    blacklists = list()
+    blacklist_elems = tree.findall("blacklist")
+    for blacklist_elem in blacklist_elems:
+        name = blacklist_elem.get("name")
+        if name:
+            blacklists.append(name)
+    return blacklists
+

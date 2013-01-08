@@ -1,4 +1,4 @@
-## Copyright (c) 2012 Aldebaran Robotics. All rights reserved.
+## Copyright (c) 2012, 2013 Aldebaran Robotics. All rights reserved.
 ## Use of this source code is governed by a BSD-style license that can be
 ## found in the COPYING file.
 
@@ -6,8 +6,9 @@
 
 """
 
+from qisys import ui
 import qibuild
-from qibuild import ui
+import qibuild.cmake
 
 def configure_parser(parser):
     """Configure parser for this action"""
@@ -33,16 +34,27 @@ def configure_parser(parser):
     group.add_argument("--werror", dest="werror",
         action="store_true",
         help="tread warnings as error")
-    parser.add_argument("--profile", dest="profile", action="store_true",
+    parser.add_argument("--profiling", dest="profiling", action="store_true",
         help="profile cmake execution")
-    parser.set_defaults(clean_first=True,
-        effective_cplusplus=False,
-        werror=False)
+    parser.add_argument("--summarize-options", dest="summarize_options",
+                        action="store_true",
+                        help="summarize build options at the end")
+    parser.set_defaults(clean_first=True, effective_cplusplus=False,
+                        werror=False, profiling=False)
+    if not parser.epilog:
+        parser.epilog = ""
+    parser.epilog += """
+Note:
+    if CMAKE_INSTALL_PREFIX is set during configure, it will be necessary to
+    repeat it at install (for further details, see: qibuild install --help).
+"""
+
 
 def do(args):
     """Main entry point"""
     if args.build_directory and not args.single:
-        raise Exception("You should use --single when specifying a build directory")
+        raise Exception("You should use --single "
+                        "when specifying a build directory")
 
     if not args.cmake_flags:
         args.cmake_flags = list()
@@ -51,7 +63,7 @@ def do(args):
     if args.werror:
         args.cmake_flags.append("QI_WERROR=ON")
 
-    toc = qibuild.toc_open(args.worktree, args)
+    toc = qibuild.toc.toc_open(args.worktree, args)
     (_, projects) = qibuild.cmdparse.deps_from_args(toc, args)
     if args.build_directory:
         projects[0].set_custom_build_directory(args.build_directory)
@@ -62,6 +74,11 @@ def do(args):
     ui.info(ui.green, "Current worktree:", ui.reset, ui.bold, toc.worktree.root)
     if toc.active_config:
         ui.info(ui.green, "Active configuration:", ui.blue, toc.active_config)
+    for profile in toc.profiles:
+        ui.info(ui.green, "Using profile:", ui.blue, profile)
+    if toc.local_cmake:
+        ui.info(ui.green, "Using custom CMake file:", ui.reset,
+                ui.bold, toc.local_cmake)
 
     project_count = len(projects)
     i = 0
@@ -73,6 +90,6 @@ def do(args):
         toc.configure_project(project,
             clean_first=args.clean_first,
             debug_trycompile=args.debug_trycompile,
-            profile=args.profile)
-
-
+            profiling=args.profiling)
+        if args.summarize_options:
+            project.summarize_options()

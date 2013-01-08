@@ -10,7 +10,7 @@ You can specify a list of build directory names to cleanup.
 
 import os
 import glob
-import qibuild.log
+import qisys.log
 
 import qisrc
 import qibuild
@@ -19,10 +19,10 @@ def configure_parser(parser):
     """Configure parser for this action"""
     qibuild.parsers.worktree_parser(parser)
     parser.add_argument("--force", "-f", dest="force", action="store_true", help="force the cleanup")
-    parser.add_argument("build_directory", nargs="*", help="build directory to cleanup")
+    parser.add_argument("build_directories", nargs="*", help="build directory to cleanup")
 
 def cleanup(path, bdirs, worktree, doit=False):
-    """ list all buildable directory """
+    """ remove all buildable directory of a project """
     if not len(bdirs):
         bdirs = glob.glob(os.path.join(path, "build-*"))
     else:
@@ -31,10 +31,14 @@ def cleanup(path, bdirs, worktree, doit=False):
         if os.path.isdir(bdir):
             if doit:
                 print " ", os.path.relpath(bdir, worktree)
-                qibuild.sh.rm(bdir)
+                qisys.sh.rm(bdir)
 
 def list_build_folder(path, bdirs, worktree):
-    """ list all buildable directory """
+    """ list all buildable directory of a project
+        return a map:
+             { 'build-titi' : 'projectname',
+               'build-tutu' : 'projectname' }
+    """
     result = dict()
     if not len(bdirs):
         bdirs = glob.glob(os.path.join(path, "build-*"))
@@ -53,8 +57,8 @@ def list_build_folder(path, bdirs, worktree):
 
 def do(args):
     """Main entry point"""
-    logger   = qibuild.log.get_logger(__name__)
-    qiwt     = qisrc.open_worktree(args.worktree)
+    logger   = qisys.log.get_logger(__name__)
+    qiwt     = qisys.worktree.open_worktree(args.worktree)
 
     if args.force:
         logger.info("preparing to remove:")
@@ -62,7 +66,7 @@ def do(args):
         logger.info("Build directory that will be removed (use -f to apply):")
     folders = dict()
     for project in qiwt.buildable_projects:
-        result = list_build_folder(project.path, args.build_directory, qiwt.root)
+        result = list_build_folder(project.path, args.build_directories, qiwt.root)
         for k, v in result.iteritems():
             if folders.get(k):
                 folders[k].extend(v)
@@ -78,6 +82,4 @@ def do(args):
         logger.info("")
         logger.info("removing:")
         for project in qiwt.buildable_projects:
-            cleanup(project.path, args.build_directory, qiwt.root, args.force)
-
-
+            cleanup(project.path, args.build_directories, qiwt.root, args.force)

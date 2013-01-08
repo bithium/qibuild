@@ -1,7 +1,7 @@
-qibuild.command - Launch processes
+qisys.command - Launch processes
 ==================================
 
-.. py:module:: qibuild.command
+.. py:module:: qisys.command
 
 Calling process
 ---------------
@@ -25,7 +25,7 @@ of :py:func:`find_program`.
 
 This way, on Windows::
 
-  qibuild.command.call(["cmake", ...])
+  qisys.command.call(["cmake", ...])
 
 works as soon as ``cmake.exe`` is in ``PATH``
 
@@ -45,7 +45,7 @@ Running process in the background
 
 .. autofunction:: call_background
 
-.. autoclass:: ProcessThread
+.. autoclass:: Process
 
 
 Exceptions

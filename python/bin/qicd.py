@@ -11,6 +11,21 @@
 import os
 import sys
 
+if __name__ == '__main__':
+    try:
+        major = sys.version_info.major
+    except AttributeError:
+        # Python < 2.7
+        major = sys.version_info[0]
+    if major != 2:
+        res = 1
+        try:
+            import subprocess
+            res = subprocess.call(['python2'] + sys.argv)
+        except OSError as e:
+            print(e)
+        sys.exit(res)
+
 # sys.path
 def patch_sys_path():
     """
@@ -26,23 +41,23 @@ def patch_sys_path():
 
 patch_sys_path()
 
-import qisrc
+import qisys.worktree
 
 def main():
     """ Main entry point """
     try:
-        worktree = qisrc.worktree.open_worktree()
-    except Exception:
+        worktree = qisys.worktree.open_worktree()
+    except Exception, e:
         sys.stderr.write("Not in a worktree\n")
         sys.exit(2)
     if len(sys.argv) < 2:
-        print worktree.root
+        print(worktree.root)
         sys.exit(0)
 
     token = sys.argv[1]
     path = find_best_match(worktree, token)
     if path:
-        print path
+        print(path)
         sys.exit(0)
     else:
         sys.stderr.write("no match for %s\n" % token)

@@ -22,9 +22,9 @@ Installs everything on the target 'mytarget' in the
 
 import os
 
-from qibuild import ui
+from qisys import ui
 import qibuild
-import qibuild.sh
+import qisys.sh
 import qibuild.deploy
 
 def configure_parser(parser):
@@ -32,26 +32,33 @@ def configure_parser(parser):
     qibuild.parsers.toc_parser(parser)
     qibuild.parsers.project_parser(parser)
     qibuild.parsers.build_parser(parser)
-    parser.add_argument("url", help="remote target url: user@hostname:path")
-    parser.add_argument("-p", "--port", help="port", type=int)
-    parser.set_defaults(port=22)
+    group = parser.add_argument_group("deploy options")
+    group.add_argument("url", help="remote target url: user@hostname:path")
+    group.add_argument("--port", help="port", type=int)
+    group.add_argument("--split-debug", action="store_true",
+                        dest="split_debug", help="split debug symbols. "
+                        "Enable remote debuging")
+    group.add_argument("--no-split-debug", action="store_false",
+                        dest="split_debug", help="do not split debug symbols. "
+                        "Remote debugging won't work")
+    parser.set_defaults(port=22, split_debug=True)
 
 def do(args):
     """Main entry point"""
     url = args.url
-    (username, server, remote_directory) = qibuild.deploy.parse_url(url)
-    toc = qibuild.toc_open(args.worktree, args)
+    qibuild.deploy.parse_url(url) # throws if url is invalid
+    toc = qibuild.toc.toc_open(args.worktree, args)
     ui.info(ui.green, "Current worktree:", ui.reset, ui.bold, toc.worktree.root)
     if toc.active_config:
         ui.info(ui.green, "Active configuration: ",
                 ui.blue, "%s (%s)" % (toc.active_config, toc.build_type))
-    rsync = qibuild.command.find_program("rsync", env=toc.build_env)
+    rsync = qisys.command.find_program("rsync", env=toc.build_env)
     use_rsync = False
     if rsync:
         use_rsync = True
     else:
         ui.warning("Please install rsync to get faster synchronisation")
-        scp = qibuild.command.find_program("scp", env=toc.build_env)
+        scp = qisys.command.find_program("scp", env=toc.build_env)
         if not scp:
             raise Exception("Could not find rsync or scp")
 
@@ -73,7 +80,7 @@ def do(args):
     if not args.single and packages:
         print
         ui.info(ui.green, ":: ", "Deploying packages")
-        with qibuild.sh.TempDir() as tmp:
+        with qisys.sh.TempDir() as tmp:
             for (i, package) in enumerate(packages):
                 ui.info(ui.green, "*", ui.reset,
                         "(%i/%i)" % (i+1, len(package.name)),
@@ -95,11 +102,14 @@ def do(args):
                 ui.green, "to", ui.blue, url)
         destdir = os.path.join(project.build_directory, "deploy")
         #create folder for project without install rules
-        qibuild.sh.mkdir(destdir, recursive=True)
+        qisys.sh.mkdir(destdir, recursive=True)
         toc.install_project(project, destdir, prefix="/",
                             runtime=True, num_jobs=args.num_jobs,
-                            split_debug=True)
+                            split_debug=args.split_debug)
+        ui.info(ui.green, "Sending binaries to target ...")
         qibuild.deploy.deploy(destdir, args.url, use_rsync=use_rsync, port=args.port)
+        if not args.split_debug:
+            continue
         gdb_script, message = qibuild.deploy.generate_debug_scripts(toc, project.name,
                                                                     args.url,
                                                                     deploy_dir=destdir)
@@ -111,6 +121,8 @@ def do(args):
             binaries = [x for x in binaries if os.path.isfile(os.path.join(bindir, x))]
             binaries = [os.path.join("bin", x) for x in binaries]
         deployed_list.append((project, binaries, gdb_script, message))
+    if not args.split_debug:
+        return
     ui.info(ui.green, ":: ", "Deployed projects")
     for (i, deployed) in enumerate(deployed_list):
         project, binaries, gdb_script, message = deployed

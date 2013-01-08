@@ -3,14 +3,16 @@
 ## found in the COPYING file.
 
 
-""" Parsing of qibuild command line arguments
+""" Parsing of qisys.command line arguments
 
 """
 
 import os
 
+from qisys import ui
+import qisys
 import qibuild
-from qibuild import ui
+import qibuild.toc
 from qibuild.dependencies_solver import topological_sort
 
 def get_deps(toc, projects, single=False, runtime=False, build_deps=False):
@@ -57,7 +59,7 @@ def parse_project_arg(toc, arg):
         * the path to a qibuild project relative to the worktree root
         * a project name
     """
-    as_path = qibuild.sh.to_native_path(arg)
+    as_path = qisys.sh.to_native_path(arg)
     if os.path.exists(as_path):
         p_name = qibuild.project.project_from_dir(toc, directory=as_path, raises=False)
         if p_name:
@@ -112,7 +114,8 @@ def deps_from_args(toc, args):
     """
     wt_root = toc.worktree.root
     if args.all:
-        return(toc.packages, toc.projects)
+        deps = get_deps(toc, toc.projects, build_deps=True)
+        return deps
     if args.worktree and not args.projects:
         mess  = "Specifying a project name is mandatory when using --worktree"
         raise Exception(mess)
@@ -134,7 +137,7 @@ def deps_from_args(toc, args):
 
 
 def no_project_args_on_root(worktree):
-    """ Called when user ran a qibuild command at the top
+    """ Called when user ran a qisys.command at the top
     of a worktree.
 
 

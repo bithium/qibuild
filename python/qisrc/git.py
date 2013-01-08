@@ -8,8 +8,10 @@
 import os
 import contextlib
 import subprocess
+import functools
 
-from qibuild import ui
+from qisys import ui
+import qisys
 import qibuild.config
 
 class Git:
@@ -37,7 +39,7 @@ class Git:
             kwargs["cwd"] = self.repo
         if not "quiet" in kwargs.keys():
             kwargs["quiet"] = False
-        git = qibuild.command.find_program("git", raises=True)
+        git = qisys.command.find_program("git", raises=True)
         cmd = [git]
         cmd.extend(args)
         raises = kwargs.get("raises")
@@ -53,14 +55,14 @@ class Git:
             out = out.rstrip("\n")
             return (process.returncode, out)
         else:
-            qibuild.command.call(cmd, **kwargs)
+            qisys.command.call(cmd, **kwargs)
 
     def get_config(self, name):
         """ Get a git config value.
         Return None if not found
 
         """
-        (status, out) = self.call("config", "--get", name, raises=False)
+        (status, out) = self.config("--get", name, raises=False)
         if status != 0:
             return None
         return out.strip()
@@ -69,7 +71,7 @@ class Git:
         """ Set a new config value.
         Will be created if it does not exist
         """
-        self.call("config", name, value)
+        self.config(name, value)
 
     def get_current_ref(self, ref="HEAD"):
         """ return the current ref
@@ -106,33 +108,17 @@ class Git:
             return "%s/%s" % (remote, merge[11:])
         return "%s/%s" % (remote, merge)
 
-    def add(self, *args, **kwargs):
-        """ Wrapper for git add """
-        return self.call("add", *args, **kwargs)
-
-    def commit(self, *args, **kwargs):
-        """ Wrapper for git commit """
-        return self.call("commit", *args, **kwargs)
-
-    def fetch(self, *args, **kwargs):
-        """ Wrapper for git fetch """
-        return self.call("fetch", *args, **kwargs)
-
-    def init(self, *args, **kwargs):
-        """ Wrapper for git init """
-        return self.call("init", *args, **kwargs)
-
-    def reset(self, *args, **kwargs):
-        """ Wrapper for git reset """
-        return self.call("reset", *args, **kwargs)
-
-    def checkout(self, *args, **kwargs):
-        """ Wrapper for git checkout """
-        return self.call("checkout", *args, **kwargs)
-
-    def pull(self, *args, **kwargs):
-        """ Wrapper for git pull """
-        return self.call("pull", *args, **kwargs)
+    def __getattr__(self, name):
+        """Generate generic wrapper for call."""
+        # If you want to specialize one, remove it from whitelist and write it
+        # by hand (see clone).
+        # Only porcelain here.
+        whitelist = ("add", "branch", "checkout", "commit", "config", "fetch",
+                     "init", "log", "merge", "pull", "push", "rebase", "remote",
+                     "reset", "stash", "status", "submodule")
+        if name in whitelist:
+            return functools.partial(self.call, name)
+        raise AttributeError
 
     def clone(self, *args, **kwargs):
         """ Wrapper for git clone """
@@ -141,19 +127,11 @@ class Git:
         kwargs["cwd"] = None
         return self.call("clone", *args, **kwargs)
 
-    def push(self, *args, **kwargs):
-        """ Wrapper for git push """
-        return self.call("push", *args, **kwargs)
-
-    def remote(self, *args, **kwargs):
-        """ Wrapper for git remote """
-        return self.call("remote", *args, **kwargs)
-
     def update_submodules(self, raises=True):
         """ Update submodule, cloning them if necessary """
         # This will fail if some pushed a broken submodule
         # (ie git metadata does not match .gitmodules)
-        res, out = self.call("submodule", "status", raises=False)
+        res, out = self.submodule("status", raises=False)
         if res != 0:
             mess  = "Broken submodules configuration detected for %s\n" % self.repo
             mess += "git status returned %s\n" % out
@@ -163,7 +141,7 @@ class Git:
                 return mess
         if not out:
             return
-        res, out = self.call("submodule", "update", "--init", "--recursive",
+        res, out = self.submodule("update", "--init", "--recursive",
                             raises=False)
         if res == 0:
             return
@@ -179,7 +157,7 @@ class Git:
         master -> tracking branch
 
         """
-        (status, out) = self.call("branch", "--no-color", raises=False)
+        (status, out) = self.branch("--no-color", raises=False)
         if status != 0:
             mess  = "Could not get the list of local branches\n"
             mess += "Error was: %s" % out
@@ -189,12 +167,20 @@ class Git:
         return [x[2:] for x in lines]
 
     def is_valid(self):
-        """ Check if the worktree is a valid git tree
-        """
+        """Check if the worktree is a valid git tree."""
         if not os.path.isdir(self.repo):
             return False
-        (status, out) = self.call("show-ref", "--quiet", raises=False)
+        (status, out) = self.call("rev-parse", "--is-inside-work-tree", raises=False)
         return status == 0
+
+    def get_status(self, untracked=True):
+        """Return the output of status or None if it failed."""
+        if untracked:
+            (status, out) = self.status("--porcelain", raises=False)
+        else:
+            (status, out) = self.status("--porcelain", "--untracked-files=no", raises=False)
+
+        return out if status == 0 else None
 
     def is_clean(self, untracked=True):
         """
@@ -203,10 +189,10 @@ class Git:
 
             :param untracked: will return True even if there are untracked files.
         """
-        if untracked:
-            (status, out) = self.call("status", "-s", raises=False)
-        else:
-            (status, out) = self.call("status", "-suno", raises=False)
+        out = self.get_status(untracked)
+        if out is None:
+            return None
+
         lines = [l for l in out.splitlines() if len(l.strip()) != 0 ]
         if len(lines) > 0:
             return False
@@ -221,8 +207,8 @@ class Git:
         in_conf = self.get_config("remote.%s.url" % name)
         if in_conf and in_conf == url:
             return
-        self.call("remote", "rm",  name, quiet=True, raises=False)
-        self.call("remote", "add", name, url, quiet=True)
+        self.remote("rm",  name, quiet=True, raises=False)
+        self.remote("add", name, url, quiet=True)
 
     def set_tracking_branch(self, branch, remote_name, fetch_first=True, remote_branch=None):
         """
@@ -245,18 +231,18 @@ class Git:
             if tracked != remote_ref:
                 mess = "%s will now track %s instead of %s"
                 mess = mess % (branch, remote_ref, tracked)
-                qibuild.ui.warning(mess)
+                qisys.ui.warning(mess)
             else:
                 return
 
         if fetch_first:
             # Fetch just in case the branch just has been created
-            self.call("fetch", remote_name, quiet=True)
+            self.fetch(remote_name, quiet=True)
 
         # If the branch does not exist yet, create it at the right commit
         if not branch in self.get_local_branches():
-            self.call("branch", branch, remote_ref, quiet=True)
-        self.call("branch", "--set-upstream", branch, remote_ref, quiet=True)
+            self.branch(branch, remote_ref, quiet=True)
+        self.branch("--set-upstream", branch, remote_ref, quiet=True)
 
     def update_branch(self, *args, **kwargs):
         """ Update the given branch to match the given remote branch
@@ -291,7 +277,7 @@ def _update_branch(git, branch, remote_name,
     if not current_branch:
         return "Not currently on any branch"
     if fetch_first:
-        (ret, out) = git.call("fetch", remote_name, raises=False)
+        (ret, out) = git.fetch(remote_name, raises=False)
         if out:
             print out
         if ret != 0:
@@ -309,13 +295,13 @@ def _update_branch(git, branch, remote_name,
         # but first stash fails for some reason ...
         if status.mess:
             return status.mess
-        (ret, out) = git.call("rebase", remote_ref, raises=False)
+        (ret, out) = git.rebase(remote_ref, raises=False)
         if ret != 0:
             print "Rebasing failed!"
             print "Calling rebase --abort"
             status.mess += "Could not rebase\n"
             status.mess += out
-            (ret, out) = git.call("rebase", "--abort", raises=False)
+            (ret, out) = git.rebase("--abort", raises=False)
             if ret == 0:
                 return status.mess
             else:
@@ -326,7 +312,7 @@ def _update_branch(git, branch, remote_name,
         # Stashing back failse: calling rebase --abort
         print "Stasthing back changes failed"
         print "Calling rebase --abort"
-        (ret, out) = git.call("rebase", "--abort", raises=False)
+        (ret, out) = git.rebase("--abort", raises=False)
         if ret != 0:
             status.mess += "rebase --abort failed!\n"
             status.mess += out
@@ -341,7 +327,7 @@ def _stash_changes(git, status):
     if git.is_clean(untracked=False):
         yield
         return
-    (ret, out) = git.call("stash", raises=False)
+    (ret, out) = git.stash(raises=False)
     if ret != 0:
         status.mess += "Stashing changes failed\n"
         status.mess += out
@@ -349,7 +335,7 @@ def _stash_changes(git, status):
     # If first stash fails, no need to try stash pop:
     if status.mess:
         return
-    (ret, out) = git.call("stash", "pop", raises=False)
+    (ret, out) = git.stash("pop", raises=False)
     if ret != 0:
         status.mess = "Stashing back changes failed\n"
         status.mess += out
@@ -362,103 +348,120 @@ def _change_branch(git, status, branch):
         yield
         return
     with _stash_changes(git, status):
-        (ret, out) = git.call("checkout", branch, raises=False)
+        (ret, out) = git.checkout(branch, raises=False)
         if ret != 0:
             status.mess += "Checkout to %s failed\n" % branch
             status.mess += out
         yield
-        (ret, out) = git.call("checkout", current_branch, raises=False)
+        (ret, out) = git.checkout(current_branch, raises=False)
         if ret != 0:
             status.mess += "Checkout back to %s failed\n" % current_branch
             status.mess += out
+
+def is_ff(git, status, local_sha1, remote_sha1):
+    """Check local_sha1 is fast-forward with remote_sha1.
+    Return True / False or None in case of error with merge-base.
+    """
+
+    (retcode, out) = git.call("merge-base", local_sha1, remote_sha1,
+                               raises=False)
+    if retcode != 0:
+        status.mess += "Calling merge-base failed"
+        status.mess += out
+        return None
+
+    common_ancestor = out.strip()
+    return common_ancestor == local_sha1
+
+def get_ref_sha1(git, ref, status):
+    """Return the sha1 from a ref. None if not found."""
+    (ret, sha1) = git.call("show-ref", "--verify", "--hash",
+                           ref, raises=False)
+
+    if ret == 0:
+        return sha1
+
+    status.mess += "Get sha1 failed.\n"
+    status.mess += sha1
+    return None
 
 def _update_branch_if_ff(git, status, local_branch, remote_ref):
     """ Update a local branch with a remote branch if the
     merge is fast-forward
 
     """
-    (ret, out) = git.call("show-ref", "--verify",
-                           "refs/heads/%s" % local_branch,
-                           raises=False)
-    if ret != 0:
-        status.mess += "Calling show-ref --verify failed\n"
-        status.mess += out
-        return
-    local_sha1 = out.split()[0]
-    (ret, out) = git.call("show-ref", "--verify",
-                                "refs/remotes/%s" % remote_ref,
-                                raises=False)
-    if ret != 0:
-        status.mess += "Calling show-ref --verify failed\n"
-        status.mess += out
+    local_sha1 = get_ref_sha1(git, "refs/heads/%s" % local_branch, status)
+    if local_sha1 is None:
         return
 
-    remote_sha1 = out.split()[0]
-    (retcode, out) = git.call("merge-base", local_sha1, remote_sha1,
-                               raises=False)
-    if retcode != 0:
-        status.mess += "Calling merge-base failed"
-        status.mess += out
+    remote_sha1 = get_ref_sha1(git, "refs/remotes/%s" % remote_ref, status)
+    if remote_sha1 is None:
         return
-    common_ancestor = out.strip()
-    if common_ancestor != local_sha1:
+
+    result_ff = is_ff(git, status, local_sha1, remote_sha1)
+    if result_ff is None:
+        return
+    if result_ff is False:
         status.mess += "Could not update %s with %s\n" % (local_branch, remote_ref)
         status.mess += "Merge is not fast-forward and you are not on %s" % local_branch
         return
-    if local_sha1 == remote_sha1:
-        # Nothing to do
-        return
+
     print "Updating %s with %s ..." % (local_branch, remote_ref)
     # Safe to checkout the branch, run merge and then go back
     # to where we were:
     with _change_branch(git, status, local_branch):
-        (ret, out) = git.call("merge", "-v", remote_sha1, raises=False)
+        (ret, out) = git.merge("-v", remote_sha1, raises=False)
         if ret != 0:
             status.mess += "Merging %s with %s failed" % (local_branch, remote_ref)
             status.mess += out
 
 def get_repo_root(path):
-    """ Return the root dir of a git worktree given a path
+    """Return the root dir of a git worktree given a path.
 
-    :return None: if no .git was found
-
+    :return None: if it's not a git work tree.
     """
-    head = path
-    while True:
-        if os.path.exists(os.path.join(head, ".git")):
-            break
-        (head, tail) = os.path.split(head)
-        if not tail:
-            return None
-    return head
+    if os.path.isfile(path):
+        path = os.path.dirname(path)
+    if not os.path.isdir(path):
+        return None
+
+    git = Git(path)
+    (ret, out) = git.call("rev-parse", "--show-toplevel", raises=False)
+
+    return out if ret == 0 else None
 
 def is_submodule(path):
     """ Tell if the given path is a submodule
 
     """
-    repo_root = get_repo_root(path)
-    if not repo_root:
+    if not os.path.isdir(path):
         return False
-    git = Git(repo_root)
-    (retcode, out) = git.call("submodule", raises=False)
+
+    # Two cases:
+    # * submodule not initialized -> path will be an empty dir
+    # * submodule initialized  -> path/.git will be a file
+    #   looking like:
+    #       gitdir: ../../.git/modules/bar
+    contents = os.listdir(path)
+    if contents:
+        dot_git = os.path.join(path, ".git")
+        if os.path.isdir(dot_git):
+            return False
+        parent_repo_root = get_repo_root(os.path.dirname(path))
+    else:
+        parent_repo_root = get_repo_root(path)
+    parent_git = Git(parent_repo_root)
+    (retcode, out) = parent_git.submodule(raises=False)
     if retcode == 0:
         if not out:
             return False
         else:
             lines = out.splitlines()
-            submodules = [x.split()[-1] for x in lines]
-            rel_path = os.path.relpath(path, repo_root)
+            submodules = [x.split()[1] for x in lines]
+            rel_path = os.path.relpath(path, parent_repo_root)
             return rel_path in submodules
     else:
         ui.warning("git submodules configuration is broken for",
-                   repo_root, "!",
+                   parent_repo_root, "!",
                    "\nError was: ", ui.reset, "\n", "  " + out)
-        # clone_project will just erase it and create a git repo instead
         return True
-
-
-def open(repo):
-    """ Open a new worktree
-    """
-    git = Git(repo)
-    return git

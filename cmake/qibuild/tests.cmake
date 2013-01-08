@@ -30,8 +30,8 @@ set(_TESTS_RESULTS_FOLDER "${CMAKE_CURRENT_BINARY_DIR}/test-results" CACHE INTER
 # \arg:name the name of the test and the target
 # \group:SRC  sources of the test
 # \group:DEPENDS the dependencies of the test
-# \param:TIMEOUT the timeout of the test. Not that TIMEOUT >= 20 causes
-#                the test to be disabled unless QI_NIGHTLY_TESTS is ON
+# \param:TIMEOUT the timeout of the test.
+# \flag: NIGHTLY: only compiled (and thus run) if QI_NIGHTLY_TESTS is ON
 # \group:ARGUMENTS arguments to be passed to the executable
 # \argn: source files (will be merged with the SRC group of arguments)
 function(qi_create_test name)
@@ -40,11 +40,9 @@ function(qi_create_test name)
     qi_set_global(QI_${name}_TARGET_DISABLED TRUE)
     return()
   endif()
-  cmake_parse_arguments(ARG "" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
-  if("${ARG_TIMEOUT}" GREATER 19)
-    if(NOT ${QI_NIGHTLY_TESTS})
-      return()
-    endif()
+  cmake_parse_arguments(ARG "NIGHTLY" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
+  if(ARG_NIGHTLY AND NOT ${QI_NIGHTLY_TESTS})
+    return()
   endif()
   qi_create_bin(${name} SRC ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS} NO_INSTALL)
   if(ARG_DEPENDS)
@@ -74,10 +72,11 @@ endfunction()
 #
 # \arg:name name of the test
 # \flag:NO_ADD_TEST Do not call add_test, just create the binary
+# \flag: NIGHTLY: only compiled (and thus run) if QI_NIGHTLY_TESTS is ON
 # \argn: source files, like the SRC group, argn and SRC will be merged
 # \param:TIMEOUT The timeout of the test
 # \group:SRC Sources
-# \group:DEPENDS Dependencies to pass to use_lib
+# \group:DEPENDS Dependencies to pass to qi_use_lib
 # \group:ARGUMENTS Arguments to pass to add_test (to your test program)
 #
 function(qi_create_gtest name)
@@ -122,11 +121,9 @@ function(qi_create_gtest name)
 
   # create tests_results folder if it does not exist
   file(MAKE_DIRECTORY "${_TESTS_RESULTS_FOLDER}")
-  cmake_parse_arguments(ARG "NO_ADD_TEST" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
-  if("${ARG_TIMEOUT}" GREATER 19)
-    if(NOT ${QI_NIGHTLY_TESTS})
-      return()
-    endif()
+  cmake_parse_arguments(ARG "NO_ADD_TEST;NIGHTLY" "TIMEOUT" "SRC;DEPENDS;ARGUMENTS" ${ARGN})
+  if(ARG_NIGHTLY AND NOT ${QI_NIGHTLY_TESTS})
+    return()
   endif()
 
   # First, create the target
@@ -172,32 +169,36 @@ endfunction()
 # \arg:test_name The name of the test
 # \arg:target_name The name of the binary to use
 # \param:TIMEOUT The timeout of the test
+# \flag: NIGHTLY: only compiled (and thus run) if QI_NIGHTLY_TESTS is ON
 # \group:ARGUMENTS Arguments to be passed to the executable
 function(qi_add_test test_name target_name)
-  cmake_parse_arguments(ARG "" "TIMEOUT" "ARGUMENTS" ${ARGN})
-
-  if("${ARG_TIMEOUT}" GREATER 19)
-    if(NOT ${QI_NIGHTLY_TESTS})
-      return()
-    endif()
+  cmake_parse_arguments(ARG "NIGHTLY" "TIMEOUT" "ARGUMENTS" ${ARGN})
+  if(ARG_NIGHTLY AND NOT ${QI_NIGHTLY_TESTS})
+    return()
   endif()
 
   if(NOT ARG_TIMEOUT)
     set(ARG_TIMEOUT 20)
   endif()
 
-  set(_bin_path ${QI_SDK_DIR}/${QI_SDK_BIN}/${target_name})
+  if(TARGET ${target_name})
+    set(_bin_path ${QI_SDK_DIR}/${QI_SDK_BIN}/${target_name})
 
-  if(MSVC AND "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(_bin_path ${_bin_path}_d)
+    if(MSVC AND "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+      set(_bin_path ${_bin_path}_d)
+    endif()
+
+    add_test(${test_name} ${_bin_path} ${ARG_ARGUMENTS})
+    set_target_properties(${target_name} PROPERTIES FOLDER "tests")
+  # If test is not a binary, assume it is a test script
+  else()
+    # Just in case user specified a relative path:
+    get_filename_component(_full_path ${target_name} ABSOLUTE)
+    if (NOT EXISTS ${_full_path})
+      qi_error("${target_name} is not a target nor an existing path")
+    endif()
+    add_test(${test_name} ${_full_path} ${ARG_ARGUMENTS})
   endif()
-
-  add_test(${test_name} ${_bin_path} ${ARG_ARGUMENTS})
-
-  # Be nice with Visual Studio users:
-  set_target_properties(${target_name}
-    PROPERTIES
-      FOLDER "tests")
 
   set_tests_properties(${test_name} PROPERTIES
     TIMEOUT ${ARG_TIMEOUT}

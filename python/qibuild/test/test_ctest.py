@@ -4,6 +4,7 @@
 
 import pytest
 from qibuild.ctest import parse_ctest_test_files
+from qibuild.ctest import TestResult
 
 def test_parse_simple(tmpdir):
     root_ctest = tmpdir.join("CTestTestfile.cmake")
@@ -52,3 +53,33 @@ SET_TESTS_PROPERTIES(bar PROPERTIES SPAM EGGS)
         parse_ctest_test_files(tmpdir.strpath)
     assert "SET_TESTS_PROPERTIES called with wrong name" in e.value.message
 
+# pylint: disable-msg=E1101
+@pytest.mark.skipif('"dead locks"')
+def test_failing_output_tests_always_printed(capsys):
+    test1 = TestResult("test", 0, 2, verbose=False)
+    test2 = TestResult("test", 1, 2, verbose=False)
+    test1.ok = True
+    test1.out = "test1"
+    test2.ok = False
+    test2.out = "test2"
+    test1.print_result()
+    test2.print_result()
+    out, err = capsys.readouterr()
+    assert "test1" not in out
+    assert "test2" in out
+
+
+# pylint: disable-msg=E1101
+@pytest.mark.skipif('"dead locks"')
+def test_passing_test_printed_when_verbose(capsys):
+    test1 = TestResult("test", 0, 2, verbose=True)
+    test2 = TestResult("test", 1, 2, verbose=True)
+    test1.ok = True
+    test1.out = "test1"
+    test2.ok = False
+    test2.out = "test2"
+    test1.print_result()
+    test2.print_result()
+    out, err = capsys.readouterr()
+    assert "test1" in out
+    assert "test2" in out

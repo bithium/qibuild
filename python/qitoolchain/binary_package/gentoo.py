@@ -11,6 +11,8 @@ http://www.gentoo.org/proj/en/portage/index.xml
 
 import os
 import re
+
+import qisys
 import qibuild
 from qitoolchain.binary_package.core import BinaryPackage
 
@@ -29,15 +31,13 @@ class GentooPackage(BinaryPackage):
     def __init__(self, package_path):
         BinaryPackage.__init__(self, 'gentoo', package_path)
 
-    def get_metadata(self):
+    def _load(self):
         """ Guess the metadata from the package file name and store it in the
         instance.
 
         :return: the metadata dictionary
 
         """
-        if self.metadata is not None:
-            return self.metadata
         pkg_pf = os.path.basename(self.path)[:-5]
         match = self._RE_PF.search(pkg_pf)
         pkg_metadata = {
@@ -46,7 +46,6 @@ class GentooPackage(BinaryPackage):
             'revision'     : match.groupdict()['rev'],
             }
         self.metadata = pkg_metadata
-        return self.metadata
 
     def extract(self, dest_dir):
         """ Extract the Gentoo binary package content, without the metadata.
@@ -60,7 +59,7 @@ class GentooPackage(BinaryPackage):
             mess = 'No such file or directory: %s' % dest_dir
             raise Exception(mess)
         discard_pattern = "trailing garbage after EOF ignored"
-        root_dir =  qibuild.archive._extract_tar(self.path, dest_dir, algo="bzip2",
+        root_dir =  qisys.archive._extract_tar(self.path, dest_dir, algo="bzip2",
                                                  quiet=True, verbose=False,
                                                  output_filter=discard_pattern)
         return root_dir

@@ -12,6 +12,23 @@
 import os
 import sys
 
+if __name__ == '__main__':
+    try:
+        major = sys.version_info.major
+    except AttributeError:
+        # Python < 2.7
+        major = sys.version_info[0]
+    if major != 2:
+        sys.stderr.write("[WARN ]: the script was not run using Python 2, "
+                         "will try to find it.\n")
+        res = 1
+        try:
+            import subprocess
+            res = subprocess.call(['python2'] + sys.argv)
+        except OSError as e:
+            print(e)
+        sys.exit(res)
+
 def patch_sys_path():
     """
     Add self sources to sys.path, so that directly using this script
@@ -29,13 +46,13 @@ patch_sys_path()
 try:
     import argparse
 except ImportError:
-    from qibuild.external import argparse
-import qibuild.script
+    from qisys.external import argparse
+import qisys.script
 
 def main():
     parser = argparse.ArgumentParser()
-    modules = qibuild.script.action_modules_from_package("qisrc.actions")
-    qibuild.script.root_command_main("qisrc", parser, modules)
+    modules = qisys.script.action_modules_from_package("qisrc.actions")
+    qisys.script.root_command_main("qisrc", parser, modules)
 
 if __name__ == "__main__":
     main()

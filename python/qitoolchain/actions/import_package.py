@@ -9,10 +9,14 @@ and add it to a toolchain.
 
 import os
 
+import qisys
 import qibuild
 import qitoolchain
 from qitoolchain.binary_package import open_package
 from qitoolchain.binary_package import convert_to_qibuild
+from qibuild.cmake.modules import add_cmake_module_to_archive
+from qibuild.cmake.modules import find_matching_qibuild_cmake_module
+from qibuild.cmake.modules import find_cmake_module_in
 
 
 def configure_parser(parser):
@@ -28,8 +32,6 @@ If PACKAGE_PATH points to a directory, then NAME is a mandatory.""")
                         metavar='DESTDIR', help="""\
 destination directory of the qiBuild package after convertsion
 (default: aside the original package)""")
-    parser.add_argument("-b", "--batch", dest="batch", action="store_true",
-                        default=False, help="enable non-interactive mode")
     return
 
 
@@ -47,7 +49,6 @@ def do(args):
     package_name = args.package_name
     package_path = os.path.abspath(args.package_path)
     dest_dir     = args.dest_dir
-    interactive  = not args.batch
     other_names  = list()
     if dest_dir is None:
         dest_dir = os.path.dirname(package_path)
@@ -70,36 +71,34 @@ a package name must be passed to the command line.
     # extract it to the default packages path of the toolchain
     tc_packages_path = qitoolchain.toolchain.get_default_packages_path(tc.name)
     package_dest = os.path.join(tc_packages_path, package_name)
-    qibuild.sh.rm(package_dest)
+    qisys.sh.rm(package_dest)
     message = """
 Importing '{1}' in the toolchain {0} ...
 """.format(tc.name, package_path)
-    qibuild.ui.info(message)
+    qisys.ui.info(message)
     # conversion into qiBuild
-    with qibuild.sh.TempDir() as tmp:
-        conversion = convert_to_qibuild(tmp, package, package_name,
-                                        other_names=other_names,
-                                        interactive=interactive)
-        qibuild_package_path = conversion[0]
-        modules_package      = conversion[1]
-        modules_qibuild      = conversion[2]
+    with qisys.sh.TempDir() as tmp:
+        qibuild_package_path = convert_to_qibuild(package, output_dir=tmp)
+        add_cmake_module_to_archive(qibuild_package_path,
+                                                          package.name)
         src = os.path.abspath(qibuild_package_path)
         dst = os.path.join(dest_dir, os.path.basename(qibuild_package_path))
         dst = os.path.abspath(dst)
-        qibuild.sh.mkdir(dest_dir, recursive=True)
-        qibuild.sh.rm(dst)
-        qibuild.sh.mv(src, dst)
+        qisys.sh.mkdir(dest_dir, recursive=True)
+        qisys.sh.rm(dst)
+        qisys.sh.mv(src, dst)
         qibuild_package_path = dst
     # installation of the qiBuild package
-    with qibuild.sh.TempDir() as tmp:
-        extracted = qibuild.archive.extract(qibuild_package_path, tmp, quiet=True)
-        qibuild.sh.install(extracted, package_dest, quiet=True)
+    with qisys.sh.TempDir() as tmp:
+        extracted = qisys.archive.extract(qibuild_package_path, tmp, quiet=True)
+        qisys.sh.install(extracted, package_dest, quiet=True)
     qibuild_package = qitoolchain.Package(package_name, package_dest)
     tc.add_package(qibuild_package)
     # end :)
-    package_content = qibuild.sh.ls_r(package_dest)
-    modules_list = qibuild.cmake.modules.find_cmake_module_in(package_content)
+    package_content = qisys.sh.ls_r(package_dest)
+    modules_list = find_cmake_module_in(package_content)
     modules_list = [os.path.join(package_dest, cmake_) for cmake_ in modules_list]
+    modules_qibuild = find_matching_qibuild_cmake_module(package.name)
     modules_list.extend(modules_qibuild)
     modules_list = ["  {0}".format(module_) for module_ in modules_list]
     modules_list = "\n".join(modules_list)
@@ -114,4 +113,4 @@ Package '{1}' has been added to the toolchain '{0}'.
 To use this package in your project, you may want to check out:
 {3}
 """.format(tc.name, package_name, qibuild_package_path, modules_list)
-    qibuild.ui.info(message)
+    qisys.ui.info(message)

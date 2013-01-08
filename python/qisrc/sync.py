@@ -8,11 +8,11 @@
 
 import os
 
-import qibuild.sh
+import qisys.sh
 import qisrc.manifest
 import qisrc.review
 import qisrc.git
-from qibuild import ui
+from qisys import ui
 
 
 def fetch_manifest(worktree, manifest_git_url, branch="master",
@@ -34,7 +34,7 @@ def fetch_manifest(worktree, manifest_git_url, branch="master",
         clone_project(worktree, manifest_git_url, src=src)
         manifest = worktree.get_project(src)
     # Make sure manifest project is on the correct, up to date branch:
-    git = qisrc.git.open(manifest.path)
+    git = qisrc.git.Git(manifest.path)
     git.set_remote("origin", manifest_git_url)
     git.set_tracking_branch(branch, "origin")
     git.checkout("-f", branch, quiet=True)
@@ -48,16 +48,24 @@ def fetch_manifest(worktree, manifest_git_url, branch="master",
         raise Exception(mess)
     return manifest_file
 
+def fetch_load_manifest(worktree, manifest_git_url, branch="master",
+    profile="default",
+    src="manifest/default"):
+    """ Fetch the manifest and load it.
+    Return a Manifest with the fetched manifest
+    """
+    manifest_file = fetch_manifest(worktree, manifest_git_url, branch, profile, src)
+    return qisrc.manifest.load(manifest_file)
 
-def init_worktree(worktree, manifest_location, setup_review=True):
-    """ (re)-intianlize a worktree given a manifest location.
+
+def init_worktree(worktree, manifest, setup_review=True):
+    """ (re)-initialize a worktree given a manifest.
     Clonie any missing repository, set the correct
     remote and tracking branch on every repository
 
     :param setup_review: Also set up the projects for review
     """
     errors = list()
-    manifest = qisrc.manifest.load(manifest_location)
     if not manifest.projects:
         return
     project_count = len(manifest.projects)
@@ -75,11 +83,15 @@ def init_worktree(worktree, manifest_location, setup_review=True):
         p_src = project.path
         wt_project = worktree.get_project(p_src)
         if not wt_project:
-            wt_project = clone_project(worktree, p_url, src=p_src, branch=p_revision,
-                                       remote=p_remote)
+            # Maybe we just need to add the project to the worktree:
+            wt_project = add_if_missing(worktree, p_src, p_remote, p_url)
+            if not wt_project:
+                wt_project = clone_project(worktree, p_url, src=p_src,
+                                           branch=p_revision,
+                                           remote=p_remote)
         p_path = wt_project.path
         if project.review and setup_review and setup_ok:
-            worktree.set_project_review(p_src, True)
+            worktree.set_project_review(p_src)
             # If setup failed once, no point in trying for every project
             setup_ok = qisrc.review.setup_project(p_path, project.name,
                                                   project.review_url, p_revision)
@@ -110,18 +122,19 @@ def clone_project(worktree, url, src=None, branch=None, remote="origin"):
         src = url.split("/")[-1].replace(".git", "")
     if os.path.isabs(src):
         src = os.path.relpath(src, worktree.root)
-        src = qibuild.sh.to_posix_path(src)
+        src = qisys.sh.to_posix_path(src)
     else:
-        src = qibuild.sh.to_posix_path(src)
+        src = qisys.sh.to_posix_path(src)
 
     conflict_project = worktree.get_project(src, raises=False)
     if conflict_project:
         mess  = "Could not add project from %s in %s\n" % (url, src)
-        mess += "This path is already registered for worktree in %s\n" % worktree.root
+        mess += "This path is already registered for worktree in %s\n" % \
+                worktree.root
         raise Exception(mess)
 
     path = os.path.join(worktree.root, src)
-    path = qibuild.sh.to_native_path(path)
+    path = qisys.sh.to_native_path(path)
     if os.path.exists(path):
         mess  = "Could not add project from %s in %s\n" % (url, src)
         mess += "This path already exists\n"
@@ -129,7 +142,7 @@ def clone_project(worktree, url, src=None, branch=None, remote="origin"):
 
     ui.info(ui.green, "Git clone: %s -> %s" % (url, path))
     dirname = os.path.dirname(path)
-    qibuild.sh.mkdir(dirname, recursive=True)
+    qisys.sh.mkdir(dirname, recursive=True)
     git = qisrc.git.Git(path)
     if branch:
         git.clone(url, "-b", branch, "-o", remote)
@@ -138,4 +151,24 @@ def clone_project(worktree, url, src=None, branch=None, remote="origin"):
     git.update_submodules()
     if should_add:
         worktree.add_project(path)
+    return worktree.get_project(src)
+
+def add_if_missing(worktree, src, remote_name, remote_url):
+    """ Add a project to a worktree if src is a already a git repo with
+    the correct remote url
+
+    (can happen when someone runs qisrc remove then qisrc sync ...)
+    """
+    path = os.path.join(worktree.root, src)
+    if not os.path.exists(path):
+        return
+    git_dir = os.path.join(path, ".git")
+    if not os.path.exists(git_dir):
+        raise Exception("%s already exists and is not a git repository" % path)
+    if qisrc.git.is_submodule(path):
+        repo_root = qisrc.git.get_repo_root(os.path.dirname(path))
+        raise Exception("%s is already a submodule of %s" % (path, repo_root))
+    git = qisrc.git.Git(path)
+    git.set_remote(remote_name, remote_url)
+    worktree.add_project(src)
     return worktree.get_project(src)

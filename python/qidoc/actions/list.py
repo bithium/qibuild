@@ -2,50 +2,38 @@
 ## Use of this source code is governed by a BSD-style license that can be
 ## found in the COPYING file.
 
-""" List the doc projects of the given worktree
+"""List the doc projects of the given worktree."""
 
-"""
-
-import operator
 import os
 
 import qibuild
 import qidoc.core
+import qisrc.cmdparse
+
+from qisys import ui
 
 def configure_parser(parser):
-    """ Configure parser for this action """
-    qibuild.parsers.default_parser(parser)
-    parser.add_argument("--work-tree", dest="worktree")
-
+    """Configure parser for this action."""
+    qibuild.parsers.worktree_parser(parser)
+    qibuild.parsers.project_parser(parser)
 
 def do(args):
-    """ Main entry point """
-    worktree = args.worktree
-    worktree = qidoc.core.find_qidoc_root(worktree)
-    if not worktree:
-        raise Exception("No qidoc worktree found.\n"
-          "Please call qidoc init or go to a qidoc worktree")
+    """Main entry point"""
+    projects = qisrc.cmdparse.projects_from_args(args)
+    builder = qidoc.core.QiDocBuilder(projects, args.worktree)
 
-    builder = qidoc.core.QiDocBuilder(worktree)
-
-    print "List of qidoc projects in", builder.worktree.root
-    print
-
-    print "Doxygen docs:"
-    doxydocs = builder.doxydocs.values()
-    # Re write the doxydoc.src to be relative to worktree
-    for doxydoc in doxydocs:
-        doxydoc.src = os.path.relpath(doxydoc.src, builder.worktree.root)
-    doxydocs.sort(key=operator.attrgetter("src"))
-    for doxydoc in doxydocs:
-        print "  ", doxydoc.src
-    print
-
-    print "Sphinx docs:"
-    sphinxdocs = builder.sphinxdocs.values()
-    # Re write the sphinxdoc.src to be relative to worktree
-    for sphinxdoc in sphinxdocs:
-        sphinxdoc.src = os.path.relpath(sphinxdoc.src, builder.worktree.root)
-    sphinxdocs.sort(key=operator.attrgetter("src"))
-    for sphinxdoc in sphinxdocs:
-        print "  ", sphinxdoc.src
+    ui.info(ui.blue, "List of qidoc projects in", ui.red,
+            builder.worktree.root, end='')
+    if builder.is_in_project():
+        if len(projects) == 1:
+            ui.info(ui.blue, '[ project:', ui.green, projects[0].src, ui.blue,
+                    ']', end='')
+        else:
+            ui.info(ui.blue, '[ several projects in current directory ]', end='')
+    ui.info('', end='\n\n')
+    for doc_type, docs in builder.documentations_list():
+        ui.info(ui.blue, doc_type.title(), 'documentation:')
+        for doc in docs:
+            ui.info(ui.green, '  *', ui.blue, doc.name.ljust(25), ui.red,
+                    os.path.relpath(doc.src, builder.worktree.root))
+        ui.info('')

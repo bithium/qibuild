@@ -57,6 +57,22 @@ package PROJECT
 deploy [PROJECT] URL
   Deploy a project on the remote target reachable at URL
 
+.. note::
+
+  if ``CMAKE_INSTALL_PREFIX`` is set at ``configure``, it will be necessary to
+  repeat it at ``install``.
+
+  For further details, refer to the help of those two commands.
+
+.. note::
+
+  ``qiBuild configure`` support SYSCONFDIR.
+
+  To set a SYSCONFDIR, just add the definition on the ``qibuild configure``
+  command line.
+
+  To set a SYSCONFDIR outside the CMAKE_INSTALL_PREFIX subtree, set SYSCONFDIR
+  to an absolute path.
 
 OPTIONS
 -------

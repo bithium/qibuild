@@ -7,11 +7,13 @@
 """
 
 import os
+import sys
 import tempfile
 
 import unittest
 import mock
 
+import qisys
 import qibuild.wizard
 from qibuild.test.test_interact import FakeInteract
 
@@ -19,16 +21,15 @@ from qibuild.test.test_interact import FakeInteract
 class ConfigWizardTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.orig_platform = sys.platform
         self.tmp = tempfile.mkdtemp(prefix="test-qibuild-config-wizard")
         self.cfg_patcher = mock.patch('qibuild.config.get_global_cfg_path')
         self.get_cfg_path = self.cfg_patcher.start()
         self.get_cfg_path.return_value = os.path.join(self.tmp, "qibuild.xml")
 
-        self.get_platform_patcher = mock.patch('qibuild.get_platform')
-        self.get_platform = self.get_platform_patcher.start()
         self.get_tc_names_patcher = mock.patch('qitoolchain.get_tc_names')
         self.get_tc_names = self.get_tc_names_patcher.start()
-        self.find_patcher = mock.patch('qibuild.command.find_program')
+        self.find_patcher = mock.patch('qisys.command.find_program')
         self.find_program = self.find_patcher.start()
         self.get_generators_patcher = mock.patch('qibuild.cmake.get_known_cmake_generators')
         self.get_generators = self.get_generators_patcher.start()
@@ -36,10 +37,10 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.toc = qibuild.toc.toc_open(self.tmp)
 
     def setup_platform(self, platform):
-        """ Setup qibuild.get_platform
+        """ Setup sys.platform
 
         """
-        self.get_platform.return_value = platform
+        sys.platform = platform
 
     def setup_tc_names(self, tc_names):
         """ Setup qitoolchain.get_tc_names for this test
@@ -59,7 +60,7 @@ class ConfigWizardTestCase(unittest.TestCase):
             fp.write(xml)
 
     def setup_find_program(self, programs):
-        """ Set the return value of qibuild.command.find_program
+        """ Set the return value of qisys.command.find_program
         for this test
 
         """
@@ -68,12 +69,12 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.find_program.side_effect = fake_find
 
     def setup_answers(self, answers):
-        """ Set the return value of qibuild.interact.ask_*
+        """ Set the return value of qisys.interact.ask_*
         for this test
 
         """
         fake_interact = FakeInteract(answers)
-        self.interact_patcher = mock.patch('qibuild.interact', fake_interact)
+        self.interact_patcher = mock.patch('qisys.interact', fake_interact)
         self.interact_patcher.start()
 
     def setup_generators(self, generators):
@@ -93,7 +94,7 @@ class ConfigWizardTestCase(unittest.TestCase):
         return qibuild_cfg
 
     def test_empty_conf_all_in_path(self):
-        self.setup_platform("linux")
+        self.setup_platform("linux2")
         self.setup_find_program({
             'cmake'  : '/usr/local/bin/cmake',
             'qtcreator' : '/usr/local/bin/qtcreator'
@@ -112,7 +113,7 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.assertEqual(qtcreator.path, '/usr/local/bin/qtcreator')
 
     def test_empty_conf_nothing_in_path(self):
-        self.setup_platform("linux")
+        self.setup_platform("linux3")
         self.setup_find_program(dict())
         self.setup_answers({
             "generator"  : "Unix Makefiles",
@@ -175,7 +176,7 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.assertEqual(qtcreator.path, '/home/john/QtSDK/bin/qtcreator')
 
     def test_visual_studio(self):
-        self.setup_platform("windows")
+        self.setup_platform("win32")
         self.setup_find_program({
             "cmake" : r"c:\Progam Files\CMake\bin\cmake.exe"
         })
@@ -190,7 +191,7 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.assertEqual(visual.name, 'Visual Studio')
 
     def test_xcode(self):
-        self.setup_platform("mac")
+        self.setup_platform("darwin")
         self.setup_find_program({
             "cmake" : "/Applications/CMake 2.8/Contents/MacOS/cmake",
         })
@@ -232,7 +233,6 @@ class ConfigWizardTestCase(unittest.TestCase):
         })
         self.setup_generators(["Unix Makefiles"])
         self.setup_tc_names(["linux32", "linux64"])
-        worktree = os.path.join(self.tmp, "worktree")
         self.run_wizard(toc=self.toc)
         self.assertEqual(self.toc.config.local.defaults.config, "linux64")
 
@@ -248,17 +248,14 @@ class ConfigWizardTestCase(unittest.TestCase):
             "unique build dir" : True,
             "unique sdk dir"   : True,
             "path to a build dir" : "build",
-            "path to a sdk dir"   : "sdk",
         })
         self.setup_generators(["Unix Makefiles"])
         self.setup_tc_names(list())
-        worktree = os.path.join(self.tmp, "worktree")
         self.run_wizard(toc=self.toc)
         self.assertEqual(self.toc.config.local.build.build_dir, "build")
-        self.assertEqual(self.toc.config.local.build.sdk_dir,   "sdk")
 
     def test_full_wizard(self):
-        self.setup_platform("windows")
+        self.setup_platform("win32")
         self.setup_find_program({
             "cmake"  : r"c:\Program Files\CMake\bin\cmake.exe"
         })
@@ -270,14 +267,13 @@ class ConfigWizardTestCase(unittest.TestCase):
         })
         self.setup_generators(["Visual Studio 10"])
         self.setup_tc_names(["win32-vs2010"])
-        worktree = os.path.join(self.tmp, "worktree")
         self.run_wizard(toc=self.toc)
         self.assertEqual(self.toc.config.local.defaults.config, "win32-vs2010")
         self.assertEqual(self.toc.config.defaults.cmake.generator, "Visual Studio 10")
 
 
     def test_incredibuild(self):
-        self.setup_platform("windows")
+        self.setup_platform("win32")
         self.setup_find_program({
             "cmake"  : r"c:\Program Files\CMake\bin\cmake.exe",
         })
@@ -290,7 +286,7 @@ class ConfigWizardTestCase(unittest.TestCase):
         self.setup_generators(["Visual Studio 10"])
         cfg = self.run_wizard()
         self.assertEqual(cfg.build.incredibuild, True)
-        self.assertEqual(cfg.defaults.env.path, r"/c/Program Files/Xoreax")
+        self.assertTrue("Xoreax" in cfg.defaults.env.path)
 
     def test_unsetting_unique_build_dir(self):
         self.setup_platform("linux")
@@ -302,16 +298,13 @@ class ConfigWizardTestCase(unittest.TestCase):
             "generator" : "Unix Makefiles",
             "ide" : "Eclipse CDT",
             "unique build dir" : True,
-            "unique sdk dir"   : True,
             "path to a build dir" : "build",
-            "path to a sdk dir"   : "sdk",
         })
         self.setup_generators(["Unix Makefiles"])
         self.setup_tc_names(list())
         old_toc = qibuild.toc.toc_open(self.tmp)
         self.run_wizard(toc=old_toc)
         self.assertEqual(old_toc.config.local.build.build_dir, "build")
-        self.assertEqual(old_toc.config.local.build.sdk_dir,   "sdk")
 
         self.interact_patcher.stop()
         self.setup_answers({
@@ -320,7 +313,6 @@ class ConfigWizardTestCase(unittest.TestCase):
             "unique build dir" : False,
             "unique sdk dir"   : False,
         })
-        work_tree = os.path.join(self.tmp, "work_tree")
         new_toc = qibuild.toc.toc_open(self.tmp)
         self.run_wizard(toc=new_toc)
         build_dir = new_toc.config.local.build.build_dir
@@ -331,9 +323,9 @@ class ConfigWizardTestCase(unittest.TestCase):
             "sdk_dir is '%s', should be None or empty" % sdk_dir)
 
     def tearDown(self):
-        qibuild.sh.rm(self.tmp)
+        qisys.sh.rm(self.tmp)
         # pylint: disable-msg=E1103
-        self.get_platform.stop()
+        sys.platform = self.orig_platform
         self.get_tc_names_patcher.stop()
         self.cfg_patcher.stop()
         self.find_patcher.stop()

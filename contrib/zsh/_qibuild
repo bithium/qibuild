@@ -1,0 +1,213 @@
+#compdef qibuild
+
+typeset -A opt_args
+
+_qibuild_find_worktree() {
+  local index file
+  for ((index=0; index < $#@; index++))
+  do
+    case $@[index] in
+      -w|--worktree|--work-tree)
+        file=${~@[index+1]}
+        if [ -d $file/.qi ];
+        then
+          WORKTREE=$file
+        else
+          WORKTREE=""
+        fi
+        ;;
+      *)
+        ;;
+    esac
+  done
+}
+
+_qibuild_configs() {
+  local -a configs
+  configs=( "system" $(qitoolchain list | grep "   " | tr -d ' ') )
+  typeset -U configs
+  compadd "$@" -a configs
+}
+
+_qibuild_projects() {
+  local -a projects worktree
+  _qibuild_find_worktree $words
+  if [ -n "$WORKTREE" ];
+  then
+    projects=( $(qibuild list -w $WORKTREE | sed -n "s/ \*  \([a-z0-9_-]*\).*/\1/p") )
+  else
+    # remove output, as it will show ugly errors outside of worktrees
+    projects=( $(qibuild list 2> /dev/null | sed -n "s/ \*  \([a-z0-9_-]*\).*/\1/p") )
+  fi
+  typeset -U projects
+  compadd "$@" -a projects
+}
+
+_qibuild_cmake_generators() {
+  local -a generators
+  generators=( "Ninja" "Unix Makefiles" )
+  typeset -U generators
+  compadd "$@" -a generators
+}
+
+_qibuild_opts_actions=(
+  "1:action:(clean config configure convert create depends deploy doc find foreach init install list make open package status test -h --help)"
+)
+
+_qibuild_opts_projects=(
+  "*:projects:_qibuild_projects"
+)
+
+_qibuild_opts_project=(
+  "-a[Work on all projects]"
+  "--all[Work on all projects]"
+  "-s[Work on specified projects without taking dependencies into account.]"
+  "--single[Work on specified projects without taking dependencies into account.]"
+  "--build-deps[Work on specified projects by ignoring the runtime deps. Useful when you have lots of runtime plugins you don't want to compile for instance]"
+  "--runtime[Work on specified projects by using only the runtime deps. Mostly used by qibuild install --runtime]"
+)
+
+_qibuild_opts_toc=(
+  "-h[show this help message and exit]"
+  "--help[show this help message and exit]"
+  "-w[Use a specific work tree path]:worktree:_directories"
+  "--worktree[Use a specific work tree path]:worktree:_directories"
+  "--work-tree[Use a specific work tree path]:worktree:_directories"
+  "-c[The configuration to use. It should match the name of a toolchain. The settings from <worktree>/.qi/<config>.cmake will also be used]:config:_qibuild_configs"
+  "--config[The configuration to use. It should match the name of a toolchain. The settings from <worktree>/.qi/<config>.cmake will also be used]:config:_qibuild_configs"
+)
+
+_qibuild_opts_build=(
+  "--release[Build in release (set CMAKE_BUILD_TYPE=Release)]"
+  "--debug[Build in debug (set CMAKE_BUILD_TYPE=Debug)]"
+  "--build-type[CMAKE_BUILD_TYPE usually Debug or Release]:buildtype:(Debug Release)"
+  "-G[Specify the CMake generator]:cmakegenerator:_qibuild_cmake_generators"
+  "--cmake-generator[Specify the CMake generator]:cmakegenerator:_qibuild_cmake_generators"
+  "-j[Number of jobs to use]"
+)
+
+_qibuild_opts_global=(
+  "-h[show this help message and exit]"
+  "--help[show this help message and exit]"
+  "--backtrace[Display backtrace on error]"
+  "--pdb[Use pdb on error]"
+  "--quiet-commands[Do not print command outputs]"
+  "-v[Output debug messages]"
+  "--verbose[Output debug messages]"
+  "--quiet[Only output error messages]"
+  "-q[Only output error messages]"
+  "--no-color[Do not use color]"
+  "--time-stamp[Add timestamps before each log message]"
+  "--color[Colorize output. This is the default]"
+)
+
+_qibuild_opts_actions_make=(
+  "--rebuild[]"
+  "-r[]"
+  "--no-fix-shared-libs[Do not try to fix shared libraries after build. Used by \`qibuild package\`]"
+)
+
+_qibuild_opts_actions_configure=(
+  "-D[additional cmake flags]:cmakeflags:"
+  "--no-clean-first[do not clean CMake cache]"
+  "--debug-trycompile[pass --debug-trycompile to CMake call]"
+  "--eff-c++[activate warnings from the \'Effective C++\' book (gcc only)]"
+  "--werror[tread warnings as error]"
+)
+
+_qibuild_opts_actions_config=(
+  "--edit[edit the configuration]"
+  "--local[only display or edit the local configuration]"
+  "--wizard[run a wizard to edit the configuration]"
+)
+
+_qibuild_opts_actions_deploy=(
+  "-p[port]"
+  "--port[port]"
+  "--split-debug[split debug symbols. Enable remote debuging]"
+  "--no-split-debug[do not split debug symbols. Remote debugging won't work]"
+)
+
+_qibuild_action_none() {
+  _values -w "action" \
+    "*clean[Clean build directories.]" \
+    "*config[Display the current config]" \
+    "*configure[Configure a project]" \
+    "*convert[Convert an existing project to a qiBuild project]" \
+    "*create[Create a new project]" \
+    "*depends[Display dependencies of projects]" \
+    "*deploy[Deploy project(s) on a remote target]" \
+    "*doc[Alias for qidoc.actions.build]" \
+    "*find[Find a package]" \
+    "*foreach[Run the same command on each buildable project.]" \
+    "*init[Initialize a new toc worktree]" \
+    "*install[Install a project and its dependencies]" \
+    "*list[List the name and path of every buildable project]" \
+    "*make[Build a project]" \
+    "*open[Open a project with an IDE]" \
+    "*package[Generate a binary sdk]" \
+    "*status[Display the status of each project]" \
+    "*test[Launch automatic tests]"
+}
+
+_qibuild() {
+  case $words[2] in
+
+    configure)
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "$_qibuild_opts_project[@]" \
+        "$_qibuild_opts_actions_configure[@]" \
+        "$_qibuild_opts_projects[@]"
+      ;;
+
+    config)
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "$_qibuild_opts_actions_config[@]"
+      ;;
+
+    clean | convert | create | depends | doc | find | 'foreach' | init | install | list | package | status | 'test')
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "*:arguments:_files"  #todo: only take build prefix
+      ;;
+
+    deploy)
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "$_qibuild_opts_projects[@]" \
+        "$_qibuild_opts_build[@]" \
+        "$_qibuild_opts_actions_deploy[@]"
+      ;;
+
+    open)
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "$_qibuild_opts_build[@]" \
+        "$_qibuild_opts_projects[@]"
+      ;;
+
+    make)
+      _arguments -s : \
+        "$_qibuild_opts_global[@]" \
+        "$_qibuild_opts_toc[@]" \
+        "$_qibuild_opts_build[@]" \
+        "$_qibuild_opts_project[@]" \
+        "$_qibuild_opts_projects[@]" \
+        "$_qibuild_opts_actions_make[@]"
+      ;;
+
+    # No argument provided, propose the list of actions
+    *)
+      _qibuild_action_none
+      ;;
+  esac
+}
+
+_qibuild "$@"

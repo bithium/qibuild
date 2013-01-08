@@ -14,15 +14,17 @@ import platform
 import signal
 import operator
 
-from qibuild import ui
-import qisrc
+from qisys import ui
+import qisys
+import qisys.envsetter
 import qibuild
 import qibuild.gdb
+import qibuild.project
+import qibuild.profile
+
 import qitoolchain
 
-from qibuild.project  import Project
-from qisrc.worktree import WorkTree
-from qibuild.command  import CommandFailedException
+from qisys.command  import CommandFailedException
 from qibuild.dependencies_solver import DependenciesSolver
 
 
@@ -47,6 +49,23 @@ class WrongDefaultException(Exception):
 
     def __str__(self):
         return self._message
+
+class NoSuchProfile(Exception):
+    """ The profile specified by the user cannot be found """
+    def __init__(self, toc, profile_name):
+        self.toc = toc
+        self.profile_name = profile_name
+
+    def __str__(self):
+        qibuild_xml = self.toc.config_path
+        profiles = qibuild.profile.parse_profiles(qibuild_xml)
+        return """ Could not find profile {name}.
+Known profiles are: {profiles}
+Please check your worktree configuration in:
+{qibuild_xml} \
+""".format(name=self.profile_name, qibuild_xml=qibuild_xml,
+           profiles=', '.join(sorted(profiles.keys())))
+
 
 class ConfigureFailed(Exception):
     def __init__(self, project, message=None):
@@ -84,7 +103,7 @@ class Toc:
 
     .. code-block:: python
 
-        worktree = qisrc.open_worktree("/path/to/src")
+        worktree = qisys.worktree.open_worktree("/path/to/src")
         toc = Toc(worktree=worktree, build_type="release")
 
         # Look for the foo project in the worktree
@@ -103,12 +122,13 @@ class Toc:
             qibuild_cfg=None,
             build_type="Debug",
             cmake_flags=None,
+            profiles=None,
             cmake_generator=None):
         """
         Create a new Toc object. Most of the keyargs come directly from
         the command line. (--worktree, --debug, -c, etc.)
 
-        :param worktree:  see :py:meth:`qisrc.worktree.WorkTree.__init__`
+        :param worktree:  see :py:meth:`qisys.worktree.WorkTree.__init__`
         :param qibuild_cfg: a  :py:class:`qibuild.config.QiBuildConfig` instance
                             if not given, a new one will be created
         :param build_type: a build type, could be debug or release
@@ -127,7 +147,7 @@ class Toc:
         self.worktree = worktree
         # The local config file in which to write
         dot_qi = os.path.join(self.worktree.root, ".qi")
-        qibuild.sh.mkdir(dot_qi)
+        qisys.sh.mkdir(dot_qi)
         self.config_path =  os.path.join(dot_qi, "qibuild.xml")
         if not os.path.exists(self.config_path):
             with open(self.config_path, "w") as fp:
@@ -149,6 +169,13 @@ class Toc:
         if config == "system":
             self.active_config = None
 
+        self.local_cmake = None
+        if self.active_config:
+            local_dir = os.path.join(worktree.root, ".qi")
+            local_cmake = os.path.join(local_dir, "%s.cmake" % self.active_config)
+            if os.path.exists(local_cmake):
+                self.local_cmake = local_cmake
+
         self.build_type = build_type
         if not self.build_type:
             self.build_type = "Debug"
@@ -157,7 +184,7 @@ class Toc:
         self.build_folder_name = None
 
         # Set build environment
-        envsetter = qibuild.envsetter.EnvSetter()
+        envsetter = qisys.envsetter.EnvSetter()
         envsetter.read_config(self.config)
         self.build_env =  envsetter.get_build_env()
 
@@ -226,11 +253,33 @@ You may want to run:
         else:
             self.user_cmake_flags = list()
 
+        self.profiles = list()
+        self.apply_profiles(profiles)
+
         # Finally, update the build configuration of all the projects
         # (this way we are sure that the build configuration is the same for
         # every project)
         self.update_projects()
 
+    def apply_profiles(self, profile_names):
+        """ Apply a profile, adding cmake flags coming from -p command
+        line arguments.
+
+        """
+        if not profile_names:
+            return
+        cmake_flags = list()
+        profiles = qibuild.profile.parse_profiles(self.config_path)
+        for profile_name in profile_names:
+            match = profiles.get(profile_name)
+            if not match:
+                raise NoSuchProfile(self, profile_name)
+            else:
+                cmake_flags.extend(match.cmake_flags)
+                self.profiles.append(profile_name)
+
+        # Re-add custom CMake flags (comfing from -D arguments) at the end:
+        self.user_cmake_flags = cmake_flags + self.user_cmake_flags
 
     def save_config(self):
         """ Save configuration. You should call this after changing
@@ -293,6 +342,8 @@ You may want to run:
             res.append(self.active_config)
         else:
             res.append("sys-%s-%s" % (platform.system().lower(), platform.machine().lower()))
+        for profile in self.profiles:
+            res.append(profile)
 
         if not self.using_visual_studio and self.build_type != "Debug":
             # When using cmake + visual studio, sharing the same build dir with
@@ -377,7 +428,7 @@ You may want to run:
 
 
     def configure_project(self, project, clean_first=True,
-                         debug_trycompile=False, profile=False):
+                         debug_trycompile=False, profiling=False):
         """ Call cmake with correct options.
 
         :param clean_first: If False, do not delete CMake cache.
@@ -385,7 +436,7 @@ You may want to run:
             `qibuild configure`.
         :param debug_trycompile: If True, will pass --debug-trycompile.
             Useful when detecting compiler fails
-        :param profile: If Ture, will run cmake --trace, and then
+        :param profiling: If True, will run cmake --trace, and then
             generate some stats.
 
         """
@@ -415,7 +466,7 @@ You may want to run:
         if debug_trycompile:
             cmake_args.append("--debug-trycompile")
 
-        if profile:
+        if profiling:
             cmake_args.append("--trace")
 
         if "MinGW" in self.cmake_generator:
@@ -432,7 +483,7 @@ You may want to run:
                           cmake_args,
                           clean_first=clean_first,
                           env=self.build_env,
-                          profile=profile)
+                          profiling=profiling)
         except CommandFailedException, e:
             if e.returncode == -signal.SIGSEGV:
                 mess = "CMake crashed. "
@@ -445,7 +496,7 @@ You may want to run:
 
     def build_project(self, project, incredibuild=False,
                       num_jobs=1, target=None, rebuild=False,
-                      fix_shared_libs=True):
+                      fix_shared_libs=True, verbose_make=False):
         """ Build a project.
 
         Usually we will simply can ``cmake --build``, but for incredibuild
@@ -483,8 +534,12 @@ You may want to run:
             cmd += ["/nologo"]
             if target:
                 cmd += ["/target=%s" % target]
+
+        make_env = self.build_env.copy()
+        if verbose_make:
+            make_env["VERBOSE"] = "1"
         try:
-            qibuild.command.call(cmd, env=self.build_env)
+            qisys.command.call(cmd, env=make_env)
         except CommandFailedException:
             raise BuildFailed(project)
 
@@ -503,7 +558,8 @@ You may want to run:
         paths = list()
 
         for package in self.packages:
-            paths.append(package.path)
+            if package.name in project.rdepends:
+                paths.append(package.path)
 
         unique_sdk_dir = self.config.local.build.sdk_dir
         if not unique_sdk_dir:
@@ -540,11 +596,11 @@ You may want to run:
         build_dir = project.build_directory
         # DESTDIR=/tmp/foo and CMAKE_PREFIX="/usr/local" means
         # dest = /tmp/foo/usr/local
-        destdir = qibuild.sh.to_native_path(destdir)
+        destdir = qisys.sh.to_native_path(destdir)
         self.build_env["DESTDIR"] = destdir
         # Must make sure prefix is not seen as an absolute path here:
         dest = os.path.join(destdir, prefix[1:])
-        dest = qibuild.sh.to_native_path(dest)
+        dest = qisys.sh.to_native_path(dest)
         cmake_cache = os.path.join(build_dir, "CMakeCache.txt")
         if not os.path.exists(cmake_cache):
             mess  = """Could not install project {project.name}
@@ -579,18 +635,25 @@ Try configuring and building the project first.
         if split_debug:
             if self.using_visual_studio:
                 raise Exception("split debug not supported on Visual Studio")
-            objcopy = qibuild.cmake.get_cached_var(project.build_directory, "CMAKE_OBJCOPY")
-            if objcopy is None:
-                objcopy = qibuild.command.find_program("objcopy", env=self.build_env)
+            ui.info(ui.green, "Splitting debug symbols from binaries ...")
+            tool_paths = dict()
+            for name in ["objcopy", "objdump"]:
+                tool_path = qibuild.cmake.get_binutil(name,
+                                                      build_dir=project.build_directory,
+                                                      build_env=self.build_env)
+                tool_paths[name] = tool_path
 
-            if not objcopy:
+            missing = [x for x in tool_paths if not tool_paths[x]]
+            if missing:
                 mess  = """\
 Could not split debug symbols from binaries for project {project.name}.
-Could not find objcopy executable.\
+The following tools were not found: {missing}\
 """
-                qibuild.ui.warning(mess.format(project=project))
-            else:
-                qibuild.gdb.split_debug(destdir, objcopy=objcopy)
+                mess = mess.format(mess, project=project,
+                                   missing = ", ".join(missing))
+                ui.warning(mess)
+                return
+            qibuild.gdb.split_debug(destdir, **tool_paths)
 
     def install_project_runtime(self, project, destdir, num_jobs=1):
         """Install runtime component of a project to a destdir """
@@ -605,11 +668,12 @@ Could not find objcopy executable.\
         for component in runtime_components:
             self.build_env["DESTDIR"] = destdir
             cmake_args = list()
+            cmake_args += ["-DBUILD_TYPE=%s" % self.build_type]
             cmake_args += ["-DCOMPONENT=%s" % component]
             cmake_args += ["-P", "cmake_install.cmake", "--"]
             cmake_args += num_jobs_to_args(num_jobs, self.cmake_generator)
             ui.debug("Installing", component)
-            qibuild.command.call(["cmake"] + cmake_args,
+            qisys.command.call(["cmake"] + cmake_args,
                 cwd=project.build_directory,
                 env=self.build_env,
                 )
@@ -618,7 +682,7 @@ Could not find objcopy executable.\
 def toc_open(worktree_root, args=None, qibuild_cfg=None):
     """ Creates a :py:class:`Toc` object.
 
-    :param worktree: The worktree to be used. (see :py:class:`qisrc.worktree.WorkTree`)
+    :param worktree: The worktree to be used. (see :py:class:`qisys.worktree.WorkTree`)
     :param args: an ``argparse.NameSpace`` object containing
      the arguments passed from the comand line.
     :param qibuild_cfg: A (:py:class:`qibuild.config.QiBuildConfig` instance) to use.
@@ -642,6 +706,9 @@ def toc_open(worktree_root, args=None, qibuild_cfg=None):
     config = None
     if hasattr(args, 'config'):
         config   = args.config
+    profiles = None
+    if hasattr(args, 'profiles'):
+        profiles = args.profiles
 
     build_type = None
     if hasattr(args, 'build_type'):
@@ -655,9 +722,10 @@ def toc_open(worktree_root, args=None, qibuild_cfg=None):
     if hasattr(args, 'cmake_generator'):
         cmake_generator = args.cmake_generator
 
-    worktree = qisrc.worktree.open_worktree(worktree_root)
+    worktree = qisys.worktree.open_worktree(worktree_root)
     toc = Toc(worktree,
                config=config,
+               profiles=profiles,
                build_type=build_type,
                cmake_flags=cmake_flags,
                cmake_generator=cmake_generator,
@@ -699,7 +767,7 @@ def create(directory, force=False):
     """ Create a new toc worktree inside a work tree
 
     """
-    qisrc.worktree.create(directory, force=force)
+    qisys.worktree.create(directory, force=force)
 
 def advise_using_configure(self, project):
     """Just throw a nice exception because
@@ -719,6 +787,14 @@ def advise_using_configure(self, project):
 
     raise TocException(mess)
 
+def check_configure(toc, project):
+    """ Check if we need to run qibuild configure
+    before make
+    """
+    build_dir = project.build_directory
+    cmake_cache = os.path.join(build_dir, "CMakeCache.txt")
+    if not os.path.exists(cmake_cache):
+        advise_using_configure(toc, project)
 
 def handle_old_qibuild_cfg(worktree):
     """ Handle processing a qibuild.cfg file,
@@ -754,6 +830,6 @@ def handle_old_qibuild_xml(worktree):
         # Refuse to try to merge back global configs ...
         # FIXME: add an error message here?
         return
-    qibuild.sh.mkdir(os.path.dirname(global_path), recursive=True)
+    qisys.sh.mkdir(os.path.dirname(global_path), recursive=True)
     with open(global_path, "w") as fp:
         fp.write(global_xml)

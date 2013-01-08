@@ -12,7 +12,10 @@ Command line
 +++++++++++++
 
 
-* Nicer output for a few commands like ``qibuild test``.
+* Nicer output for all commands.
+* ``qibuild configure``: add a ``--summarize-options`` argument to
+   print a summary of the build options at the end of the configuration
+* ``qibuild make`` get rid of confusing and useless "--target" option
 * Added a lot of short options ("-n" for "--dry-run", "-f" for "--force")
 * ``qibuild init``: add a ``--config`` argument to set the default config used by
   the worktree
@@ -43,7 +46,7 @@ Command line
 * ``qisrc init`` : add ``-p,  --profile`` option to choose from several profiles  (different xml files in the git url)
 * ``qisrc init`` : add ``-b, --branch`` option to choose a branch in the manifest url
 * ``qisrc status`` : now also display a message when the current branch is ahead or behind the remote branch
-* Added ``qsrc sync``
+* Added ``qisrc sync``
 
   * configure local and remote branches
   * automatically setup code review
@@ -53,6 +56,7 @@ Command line
 * Added ``qibuild deploy``, to deploy code to a remote device
 * ``qibuild test``: learned ``--slow``
 * ``qibuild test``: learned ``-n, --dry-run`` to  just list the test names
+* ``qibuild test``: learned ``--perf`` to run performance tests
 * ``qibuild test``: ``--test-name`` has been removed, use ``-k PATTERN``
 * Removed ``qisrc fetch``, use ``qisrc init`` instead
 * Removed ``qisrc pull``, use ``qisrc sync`` instead
@@ -61,22 +65,54 @@ Command line
   directory into a qiBuild package
 * ``qitoolchain import-package`` learned ``--batch``
 * ``qitoolchain import-package`` learned to import package directory
+* :cmake:function:`qi_add_test` can now handle test script as target instead of binary.
+* ``qibuild make`` learned ``--verbose-make``
 
 CMake
 ++++++
 
 * Added :cmake:function:`qi_generate_src`,  :cmake:function:`qi_generate_header`
 * Added :cmake:function:`qi_swig_wrap_java`
+* Added :cmake:function:`qi_create_perf_test`
 * :cmake:function:`qi_create_gtest` and :cmake:function:`qi_create_test` learned
   the ``SLOW`` keyword so that tests are not run by default.
 * :cmake:function:`qi_use_lib` learned the ``ASSUME_SYSTEM_INCLUDE`` flag
   to use ``-isystem`` on the dependencies
+* :cmake:function:`qi_create_config_h` learned to use ``configure_file`` flags
+  such as ``@ONLY``
+* :cmake:function:`qi_install_conf` learned to install configuration files in a
+  SYSCONDIR outside the CMAKE_INSTALL_PREFIX subtree.
+
+  .. code-block:: console
+
+    $ qibuild configure foo
+    $ qibuild install foo --prefix=/usr /tmp/without_sysconfdir
+    $ tree /tmp/without_sysconfdir
+    /tmp/without_sysconfdir/
+        usr/
+            etc/
+                foo.conf
+            lib/
+                libfoo.so
+
+    $ qibuild configure foo -D SYSCONFDIR=/etc
+    $ qibuild install foo --prefix=/usr /tmp/with_sysconfdir
+    $ tree /tmp/with_sysconfdir
+    /tmp/with_sysconfdir/
+        etc/
+            foo.conf
+        usr/
+            lib/
+                libfoo.so
 
 * qibuild cmake modules:
 
-  * Added ``openssl``, ``libevent_openssl``, ``qt_qtdbus``
+  * Added ``hdf5``, ``openssl``, ``libevent_openssl``, ``qt_qtdbus``,
+    ``qt_qttest``, ``boost_test_exec_monitor``, ``rrd``, ``rrd_th``,
+    ``jsoncpp``, ``zbar``
   * Renamed dbus into dbus-1, and dbus-glib into dbus-glib-1
   * ``qi_use_lib(OPENGL)`` now uses upstream's ``FindOpenGL.cmake``
+  * ogre-tools: Allow to use more than one plugin.
 
 Python
 +++++++

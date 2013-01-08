@@ -8,7 +8,7 @@ import unittest
 import pytest
 
 import qisrc.git
-import qibuild.sh
+import qisys.sh
 
 def read_readme(src):
     """ Returns the contents for the README file
@@ -40,12 +40,12 @@ def create_git_repo(tmp, path, with_release_branch=False):
     Return a valid git url.
     """
     tmp_srv = os.path.join(tmp, "srv", path + ".git")
-    qibuild.sh.mkdir(tmp_srv, recursive=True)
+    qisys.sh.mkdir(tmp_srv, recursive=True)
     srv_git = qisrc.git.Git(tmp_srv)
     srv_git.call("init", "--bare")
 
     tmp_src = os.path.join(tmp, "src", path)
-    qibuild.sh.mkdir(tmp_src, recursive=True)
+    qisys.sh.mkdir(tmp_src, recursive=True)
     write_readme(tmp_src, path + "\n")
     git = qisrc.git.Git(tmp_src)
     git.call("init")
@@ -104,7 +104,7 @@ def push_file(tmp, git_path, filename, contents, branch="master"):
     else:
         git.checkout("-b", branch)
     dirname = os.path.dirname(filename)
-    qibuild.sh.mkdir(os.path.join(tmp_src, dirname), recursive=True)
+    qisys.sh.mkdir(os.path.join(tmp_src, dirname), recursive=True)
     with open(os.path.join(tmp_src, filename), "w") as fp:
         fp.write(contents)
     git.add(filename)
@@ -122,17 +122,17 @@ def push_readme_v2(tmp, path, branch):
 @pytest.mark.slow
 class GitTestCase(unittest.TestCase):
     def setUp(self):
-        qibuild.command.CONFIG["quiet"] = True
+        qisys.command.CONFIG["quiet"] = True
         self.tmp = tempfile.mkdtemp(prefix="test-qisrc-sync")
 
     def tearDown(self):
-        qibuild.command.CONFIG["quiet"] = True
-        qibuild.sh.rm(self.tmp)
+        qisys.command.CONFIG["quiet"] = True
+        qisys.sh.rm(self.tmp)
 
     def test_set_remote(self):
         bar_url = create_git_repo(self.tmp, "bar", with_release_branch=True)
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url,  "-o", "foo")
@@ -156,7 +156,7 @@ class GitTestCase(unittest.TestCase):
     def test_get_current_branch(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -172,17 +172,17 @@ class GitTestCase(unittest.TestCase):
 @pytest.mark.slow
 class GitUpdateBranchTestCase(unittest.TestCase):
     def setUp(self):
-        qibuild.command.CONFIG["quiet"] = True
+        qisys.command.CONFIG["quiet"] = True
         self.tmp = tempfile.mkdtemp(prefix="test-qisrc-sync")
 
     def tearDown(self):
-        qibuild.command.CONFIG["quiet"] = True
-        qibuild.sh.rm(self.tmp)
+        qisys.command.CONFIG["quiet"] = True
+        qisys.sh.rm(self.tmp)
 
     def test_simple(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -202,7 +202,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_wrong_branch(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -229,7 +229,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_conflict(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -255,7 +255,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_untracked_files(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -280,7 +280,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_untracked_would_be_overwritten(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -307,7 +307,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_unstaged_changes_conflict(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -331,7 +331,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_unstaged_changes_no_conflict(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -369,7 +369,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_wrong_branch_unstaged(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -396,7 +396,7 @@ class GitUpdateBranchTestCase(unittest.TestCase):
     def test_wrong_branch_with_conflicts(self):
         bar_url = create_git_repo(self.tmp, "bar")
         work = os.path.join(self.tmp, "work")
-        qibuild.sh.mkdir(work)
+        qisys.sh.mkdir(work)
         bar_src = os.path.join(work, "bar")
         git = qisrc.git.Git(bar_src)
         git.clone(bar_url)
@@ -467,3 +467,67 @@ def test_submodules(tmpdir):
     bar = foo.join("bar")
     assert qisrc.git.is_submodule(bar.strpath)
     assert not qisrc.git.is_submodule(foo.strpath)
+    git.update_submodules()
+    assert qisrc.git.is_submodule(bar.strpath)
+
+def test_create_in_git_dir(tmpdir):
+    a_git = tmpdir.mkdir("a_git_project")
+    a_manifest = tmpdir.join("a_manifest.xml")
+    a_manifest.write("<manifest />")
+    git = qisrc.git.Git(a_git.strpath)
+    git.init()
+    work = a_git.mkdir("work")
+    # pylint: disable-msg=E1101
+    with pytest.raises(Exception) as e:
+        qisys.worktree.create(work.strpath)
+    assert "inside a git project" in e.value.message
+
+def test_get_repo_root(tmpdir):
+    a_nogit = tmpdir.mkdir("a_nogit_project")
+    a_git = tmpdir.mkdir("a_git_project")
+    git = qisrc.git.Git(a_git.strpath)
+    git.init()
+    work = a_git.mkdir("work")
+
+    assert qisrc.git.get_repo_root(a_nogit.strpath) == None
+    assert qisrc.git.get_repo_root(a_git.strpath)   == a_git.strpath
+    assert qisrc.git.get_repo_root(work.strpath)    == a_git.strpath
+    assert qisrc.git.get_repo_root(os.path.join(tmpdir.strpath, "pouet")) == None
+
+def test_is_ff(tmpdir):
+    a_git = tmpdir.mkdir("a_git_project")
+    a_src = a_git.strpath
+
+    git = qisrc.git.Git(a_src)
+    git.init()
+    write_readme(a_src, "readme\n")
+    git.add(".")
+    git.commit("-m", "initial commit")
+    git.call("branch", "A")
+
+    write_readme(a_src, "readme2\n")
+    git.add(".")
+    git.commit("-m", "second commit")
+    git.call("branch", "B")
+
+    (ret, out) = git.call("show-ref", "--verify", "refs/heads/A", raises=False)
+    A_sha1 = out.split()[0]
+    (ret, out) = git.call("show-ref", "--verify", "refs/heads/B", raises=False)
+    B_sha1 = out.split()[0]
+
+    class Status:
+        pass
+    status = Status()
+    status.mess = ""
+    assert qisrc.git.is_ff(git, status, A_sha1, B_sha1) == True
+    assert qisrc.git.is_ff(git, status, B_sha1, A_sha1) == False
+    assert qisrc.git.is_ff(git, status, A_sha1, A_sha1) == True
+
+def test_get_ref_sha1(tmpdir):
+    a_git = tmpdir.mkdir("a_git_project")
+    git = qisrc.git.Git(a_git.strpath)
+
+    assert git.is_valid() == False
+
+    git.init()
+    assert git.is_valid() == True

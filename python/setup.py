@@ -6,7 +6,8 @@ from distutils.core import setup
 
 packages = [
     "qibuild",
-    "qibuild.external",
+    "qisys",
+    "qisys.external",
     "qisrc",
     "qisrc.actions",
     "qibuild",
@@ -14,6 +15,7 @@ packages = [
     "qibuild.cmake",
     "qidoc",
     "qidoc.actions",
+    "qidoc.docs",
     "qitoolchain",
     "qitoolchain.actions",
     "qitoolchain.binary_package",
@@ -36,7 +38,7 @@ package_data = {
 }
 
 setup(name = 'qibuild',
-      version = "1.16",
+      version = "1.18",
       description = "Compilation of C++ projects made easy!",
       author = "Aldebaran Robotics",
       author_email = "dmerejkowsky@aldebaran-robotics.com",

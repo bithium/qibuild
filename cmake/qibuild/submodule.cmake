@@ -47,16 +47,17 @@ function(qi_submodule_create name)
   
   # Note: this function may be called more that once, that why we
   # ADD values inside cache if they are already here.
-  qi_set_advanced_cache(${_OUT_src}           ${${_OUT_src}}           ${_SRC})
-  qi_set_advanced_cache(${_OUT_depends}       ${${_OUT_depends}}       ${ARG_DEPENDS})
-  qi_set_advanced_cache(${_OUT_include}       ${${_OUT_include}}       ${ARG_INCLUDE})
-    
+  qi_global_get(_OUT_src_content ${_OUT_src})
+  qi_global_get(_OUT_depends_content ${_OUT_depends}) 
+  qi_global_set(${_OUT_src} ${_OUT_src_content} ${_SRC})
+  qi_global_set(${_OUT_depends} ${_OUT_depends_content} ${ARG_DEPENDS})
+  qi_global_set(${_OUT_include} ${ARG_INCLUDE})
 endfunction()
 
 
 #! This function is similar to qi_submodule_create but appends content to
-# the submodule. This function can be condionnal, if you specify IF
-# then the content will be appended to the submodule only if the flags
+# the submodule. This function can be condional, if you specify IF
+# then the content will be appended to the submodule only if all the flags
 # are defined.
 #
 # \arg:name               The name of the submodule
@@ -86,6 +87,6 @@ function(qi_submodule_add _name)
   if (_doit)
     qi_submodule_create("${_name}"
                         SRC           ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS}
-                        DEPENDS       ${ARG_DEPENDS} )
+                        DEPENDS       ${ARG_DEPENDS})
   endif()
 endfunction()

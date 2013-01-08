@@ -9,12 +9,12 @@
 import os
 import re
 import subprocess
-import qibuild.log
+import qisys.log
 
-from qibuild import ui
-import qibuild.command
-import qibuild.sh
-import qibuild.cmake.profile
+from qisys import ui
+import qisys.command
+import qisys.sh
+import qibuild.cmake.profiling
 
 def get_known_cmake_generators():
     """ Get the list of known cmake generators.
@@ -23,7 +23,7 @@ def get_known_cmake_generators():
 
     """
     build_env = qibuild.config.get_build_env()
-    cmake_    = qibuild.command.find_program("cmake", env=build_env)
+    cmake_    = qisys.command.find_program("cmake", env=build_env)
     if not cmake_:
         message = """\
 Could not find cmake executable
@@ -82,7 +82,7 @@ def get_cached_var(build_dir, var, default=None):
 
 
 def cmake(source_dir, build_dir, cmake_args, env=None,
-          clean_first=True, profile=False):
+          clean_first=True, profiling=False):
     """Call cmake with from a build dir for a source dir.
     cmake_args are added on the command line.
 
@@ -100,7 +100,7 @@ def cmake(source_dir, build_dir, cmake_args, env=None,
     # Always remove CMakeCache
     if clean_first:
         cache = os.path.join(build_dir, "CMakeCache.txt")
-        qibuild.sh.rm(cache)
+        qisys.sh.rm(cache)
 
     # Check that no one has made an in-source build
     in_source_cache = os.path.join(source_dir, "CMakeCache.txt")
@@ -118,8 +118,8 @@ def cmake(source_dir, build_dir, cmake_args, env=None,
     # Add path to source to the list of args, and set buildir for
     # the current working dir.
     cmake_args += [source_dir]
-    if not profile:
-        qibuild.command.call(["cmake"] + cmake_args, cwd=build_dir, env=env)
+    if not profiling:
+        qisys.command.call(["cmake"] + cmake_args, cwd=build_dir, env=env)
         return
     # importing here in order to not create circular dependencies:
     cmake_log = os.path.join(build_dir, "cmake.log")
@@ -130,9 +130,9 @@ def cmake(source_dir, build_dir, cmake_args, env=None,
     fp.close()
     qibuild_dir = get_cmake_qibuild_dir()
     ui.info(ui.green, "Analyzing cmake logs ...")
-    profile = qibuild.cmake.profile.parse_cmake_log(cmake_log, qibuild_dir)
+    profiling_res = qibuild.cmake.profiling.parse_cmake_log(cmake_log, qibuild_dir)
     outdir = os.path.join(build_dir, "profile")
-    qibuild.cmake.profile.gen_annotations(profile, outdir, qibuild_dir)
+    qibuild.cmake.profiling.gen_annotations(profiling_res, outdir, qibuild_dir)
     ui.info(ui.green, "Annotations generated in", outdir)
 
 
@@ -151,7 +151,7 @@ def read_cmake_cache(cache_path):
             continue
         if not line:
             continue
-        match = re.match(r"([a-zA-Z-_]+):(\w+)=(.*)", line)
+        match = re.match(r"([a-zA-Z0-9-_]+):(\w+)=(.*)", line)
         if not match:
             continue
         else:
@@ -234,7 +234,7 @@ def get_cmake_qibuild_dir():
     # and the cmake code in qibuild/cmake
     # (using qibuild from sources)
     res = os.path.join(qibuild.QIBUILD_ROOT_DIR, "..", "..", "cmake")
-    res = qibuild.sh.to_native_path(res)
+    res = qisys.sh.to_native_path(res)
     if os.path.isdir(res):
         return res
 
@@ -242,7 +242,7 @@ def get_cmake_qibuild_dir():
     # the following layout sdk/share/cmake/qibuild,
     # sdk/lib/python2.x/site-packages/qibuild
     sdk_dir = os.path.join(qibuild.QIBUILD_ROOT_DIR, "..", "..", "..", "..")
-    sdk_dir = qibuild.sh.to_native_path(sdk_dir)
+    sdk_dir = qisys.sh.to_native_path(sdk_dir)
     res = os.path.join(sdk_dir, "share", "cmake")
     if os.path.isdir(res):
         return res
@@ -250,3 +250,23 @@ def get_cmake_qibuild_dir():
     mess  = "Could not find qibuild cmake framework path\n"
     mess += "Please file a bug report with the details of your installation"
     raise Exception(mess)
+
+
+def get_binutil(name, cmake_var=None, build_dir=None, build_env=None):
+    """ Get a tool from the binutils package.
+    First, look for it in the CMake cache, else look for it in the
+    system.
+
+    Note that after a call to CMAKE_FORCE_C_COMPILER() in a CMake
+    toolchain file, CMAKE_AR, CMAKE_OBJDUMP et al. should be correctly
+    set in cache.
+
+    """
+    res = None
+    if not cmake_var:
+        cmake_var = "CMAKE_" + name.upper()
+    if build_dir:
+        res =  get_cached_var(build_dir, cmake_var)
+    if res:
+        return res
+    return qisys.command.find_program(name, env=build_env)
