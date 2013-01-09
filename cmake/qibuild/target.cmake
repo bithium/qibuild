@@ -73,14 +73,20 @@ function(qi_create_bin name)
     if (NOT _subdef)
       qi_error("Submodule ${submodule} not defined")
     endif()
+
     qi_global_get(_subsrc "${_upper_submodule_src}")
-    string(TOUPPER "submodule_${name}_depends"       _upper_submodule_depends)
+
+    string(TOUPPER "submodule_${submodule}_depends"       _upper_submodule_depends)
     qi_global_get(_subdep "${_upper_submodule_depends}")
-    string(TOUPPER "submodule_${name}_include"       _upper_submodule_include)
+
+    string(TOUPPER "submodule_${submodule}_include"       _upper_submodule_include)
     qi_global_get(_subinc "${_upper_submodule_include}")
+
     set(ARG_SRC     ${ARG_SRC}     ${_subsrc})
     set(ARG_DEPENDS ${ARG_DEPENDS} ${_subdep})
+
     source_group(${submodule} FILES ${_subsrc})
+
 	  include_directories( ${_subinc} )
   endforeach()
 
@@ -218,15 +224,22 @@ function(qi_create_lib name)
     if (NOT _subdef)
       qi_error("Submodule ${submodule} not defined")
     endif()
+
     qi_global_get(_subsrc "${_upper_submodule_src}")
-    string(TOUPPER "submodule_${name}_depends"       _upper_submodule_depends)
+
+    string(TOUPPER "submodule_${submodule}_depends"       _upper_submodule_depends)
     qi_global_get(_subdep "${_upper_submodule_depends}")
-    string(TOUPPER "submodule_${name}_include"       _upper_submodule_include)
+
+    string(TOUPPER "submodule_${submodule}_include"       _upper_submodule_include)
     qi_global_get(_subinc "${_upper_submodule_include}")
+
     set(ARG_SRC     ${ARG_SRC}     ${_subsrc})
     set(ARG_DEPENDS ${ARG_DEPENDS} ${_subdep})
+
     source_group(${submodule} FILES ${_subsrc})
+
 	  include_directories( ${_subinc} )
+
   endforeach()
   qi_glob(_SRC           ${ARG_SRC})
 
