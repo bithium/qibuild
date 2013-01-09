@@ -42,9 +42,9 @@ function(qi_submodule_create name)
 
   qi_glob(_SRC           ${ARG_SRC} ${ARG_UNPARSED_ARGUMENTS})
   qi_abspath(_SRC ${_SRC})
-  
+
   get_property(ARG_INCLUDE DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
-  
+
   # Note: this function may be called more that once, that why we
   # ADD values inside cache if they are already here.
   qi_global_get(_OUT_src_content ${_OUT_src})
